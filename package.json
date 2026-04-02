@@ -1,0 +1,40 @@
+{
+	"name": "oi-wake-up",
+	"version": "1.0.0",
+	"description": "Wake-on-LAN done right. No dependencies, just Node.js.",
+	"type": "module",
+	"main": "./src/index.js",
+	"exports": {
+		".": {
+			"import": "./src/index.js"
+		}
+	},
+	"bin": {
+		"oi-wake-up": "./bin/cli.js"
+	},
+	"files": [
+		"src",
+		"bin"
+	],
+	"scripts": {
+		"test": "node --test",
+		"test:watch": "node --test --watch"
+	},
+	"keywords": [
+		"wake-on-lan",
+		"wol",
+		"magic-packet",
+		"network",
+		"wake"
+	],
+	"author": "",
+	"license": "MIT",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/CaptainCodeAU/oi-wake-up.git"
+	},
+	"engines": {
+		"node": ">=18.0.0"
+	},
+	"packageManager": "pnpm@10.30.3"
+}

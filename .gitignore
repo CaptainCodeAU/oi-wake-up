@@ -1,2 +1,29 @@
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+
+# Test / Coverage
+coverage/
+
+# Environment
+.env
+.env.local
+
+# OS
+.DS_Store
+
+# Editor
+.idea/
+.vscode/
+*.swp
+
+# Project
 .claude/
 Plans/
