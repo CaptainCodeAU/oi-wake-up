@@ -1,0 +1,416 @@
+{
+    // Profile 1 — Ocean Deep
+    // "workbench.colorCustomizations": {
+    //     "titleBar.activeBackground": "#1a4d7a",
+    //     "titleBar.activeForeground": "#ffffff",
+    //     "titleBar.inactiveBackground": "#154065",
+    //     "titleBar.inactiveForeground": "#999999",
+    //     "panel.border": "#154065",
+    //     "sideBar.border": "#154065",
+    //     "statusBar.background": "#1a4d7a",
+    //     "statusBar.foreground": "#e7e7e7",
+    //     "terminal.inactiveSelectionBackground": "#3D3D3D",
+    //     "terminal.selectionBackground": "#474747",
+    // },
+    // Profile 2 — Forest Green
+    // "workbench.colorCustomizations": {
+    //     "titleBar.activeBackground": "#226F54",
+    //     "titleBar.activeForeground": "#ffffff",
+    //     "titleBar.inactiveBackground": "#1a5540",
+    //     "titleBar.inactiveForeground": "#999999",
+    //     "panel.border": "#1a5540",
+    //     "sideBar.border": "#1a5540",
+    //     "statusBar.background": "#226F54",
+    //     "statusBar.foreground": "#e7e7e7",
+    //     "terminal.inactiveSelectionBackground": "#3D3D3D",
+    //     "terminal.selectionBackground": "#474747",
+    // },
+    // Profile 3 — Deep Purple
+    // "workbench.colorCustomizations": {
+    //     "titleBar.activeBackground": "#4B296B",
+    //     "titleBar.activeForeground": "#ffffff",
+    //     "titleBar.inactiveBackground": "#3a2052",
+    //     "titleBar.inactiveForeground": "#999999",
+    //     "panel.border": "#3a2052",
+    //     "sideBar.border": "#3a2052",
+    //     "statusBar.background": "#4B296B",
+    //     "statusBar.foreground": "#e7e7e7",
+    //     "terminal.inactiveSelectionBackground": "#3D3D3D",
+    //     "terminal.selectionBackground": "#474747",
+    // },
+    // Profile 4 — Crimson
+    // "workbench.colorCustomizations": {
+    //     "titleBar.activeBackground": "#A71D31",
+    //     "titleBar.activeForeground": "#ffffff",
+    //     "titleBar.inactiveBackground": "#821625",
+    //     "titleBar.inactiveForeground": "#999999",
+    //     "panel.border": "#821625",
+    //     "sideBar.border": "#821625",
+    //     "statusBar.background": "#A71D31",
+    //     "statusBar.foreground": "#e7e7e7",
+    //     "terminal.inactiveSelectionBackground": "#3D3D3D",
+    //     "terminal.selectionBackground": "#474747",
+    // },
+    // Profile 5 — Teal
+    // "workbench.colorCustomizations": {
+    //     "titleBar.activeBackground": "#0E9594",
+    //     "titleBar.activeForeground": "#ffffff",
+    //     "titleBar.inactiveBackground": "#0b7372",
+    //     "titleBar.inactiveForeground": "#999999",
+    //     "panel.border": "#0b7372",
+    //     "sideBar.border": "#0b7372",
+    //     "statusBar.background": "#0E9594",
+    //     "statusBar.foreground": "#e7e7e7",
+    //     "terminal.inactiveSelectionBackground": "#3D3D3D",
+    //     "terminal.selectionBackground": "#474747",
+    // },
+    // Profile 6 — Burnt Orange
+    // "workbench.colorCustomizations": {
+    //     "titleBar.activeBackground": "#A3320B",
+    //     "titleBar.activeForeground": "#ffffff",
+    //     "titleBar.inactiveBackground": "#7d2609",
+    //     "titleBar.inactiveForeground": "#999999",
+    //     "panel.border": "#7d2609",
+    //     "sideBar.border": "#7d2609",
+    //     "statusBar.background": "#A3320B",
+    //     "statusBar.foreground": "#e7e7e7",
+    //     "terminal.inactiveSelectionBackground": "#3D3D3D",
+    //     "terminal.selectionBackground": "#474747",
+    // },
+    // Profile 7 — Slate
+    // "workbench.colorCustomizations": {
+    //     "titleBar.activeBackground": "#2F4858",
+    //     "titleBar.activeForeground": "#ffffff",
+    //     "titleBar.inactiveBackground": "#243845",
+    //     "titleBar.inactiveForeground": "#999999",
+    //     "panel.border": "#243845",
+    //     "sideBar.border": "#243845",
+    //     "statusBar.background": "#2F4858",
+    //     "statusBar.foreground": "#e7e7e7",
+    //     "terminal.inactiveSelectionBackground": "#3D3D3D",
+    //     "terminal.selectionBackground": "#474747",
+    // },
+    // Profile 8 — Magenta
+    // "workbench.colorCustomizations": {
+    //     "titleBar.activeBackground": "#A40E4C",
+    //     "titleBar.activeForeground": "#ffffff",
+    //     "titleBar.inactiveBackground": "#7e0b3b",
+    //     "titleBar.inactiveForeground": "#999999",
+    //     "panel.border": "#7e0b3b",
+    //     "sideBar.border": "#7e0b3b",
+    //     "statusBar.background": "#A40E4C",
+    //     "statusBar.foreground": "#e7e7e7",
+    //     "terminal.inactiveSelectionBackground": "#3D3D3D",
+    //     "terminal.selectionBackground": "#474747",
+    // },
+    // Profile 9 — Dark Olive
+    // "workbench.colorCustomizations": {
+    //     "titleBar.activeBackground": "#262A10",
+    //     "titleBar.activeForeground": "#cccccc",
+    //     "titleBar.inactiveBackground": "#1c1f0b",
+    //     "titleBar.inactiveForeground": "#888888",
+    //     "panel.border": "#1c1f0b",
+    //     "sideBar.border": "#1c1f0b",
+    //     "statusBar.background": "#262A10",
+    //     "statusBar.foreground": "#cccccc",
+    //     "terminal.inactiveSelectionBackground": "#3D3D3D",
+    //     "terminal.selectionBackground": "#474747",
+    // },
+    // Profile 10 — Charcoal
+    // "workbench.colorCustomizations": {
+    //     "titleBar.activeBackground": "#464F51",
+    //     "titleBar.activeForeground": "#ffffff",
+    //     "titleBar.inactiveBackground": "#363d3f",
+    //     "titleBar.inactiveForeground": "#999999",
+    //     "panel.border": "#363d3f",
+    //     "sideBar.border": "#363d3f",
+    //     "statusBar.background": "#464F51",
+    //     "statusBar.foreground": "#e7e7e7",
+    //     "terminal.inactiveSelectionBackground": "#3D3D3D",
+    //     "terminal.selectionBackground": "#474747",
+    // },
+    // Profile 11 — Electric Indigo
+    // "workbench.colorCustomizations": {
+    //     "titleBar.activeBackground": "#4B0082",
+    //     "titleBar.activeForeground": "#ffffff",
+    //     "titleBar.inactiveBackground": "#3a0066",
+    //     "titleBar.inactiveForeground": "#999999",
+    //     "panel.border": "#3a0066",
+    //     "sideBar.border": "#3a0066",
+    //     "statusBar.background": "#4B0082",
+    //     "statusBar.foreground": "#e7e7e7",
+    //     "terminal.inactiveSelectionBackground": "#3D3D3D",
+    //     "terminal.selectionBackground": "#474747",
+    // },
+    // Profile 12 — Hot Pink
+    // "workbench.colorCustomizations": {
+    //     "titleBar.activeBackground": "#C2185B",
+    //     "titleBar.activeForeground": "#ffffff",
+    //     "titleBar.inactiveBackground": "#9B1348",
+    //     "titleBar.inactiveForeground": "#999999",
+    //     "panel.border": "#9B1348",
+    //     "sideBar.border": "#9B1348",
+    //     "statusBar.background": "#C2185B",
+    //     "statusBar.foreground": "#e7e7e7",
+    //     "terminal.inactiveSelectionBackground": "#3D3D3D",
+    //     "terminal.selectionBackground": "#474747",
+    // },
+    // Profile 13 — Cobalt Blue
+    "workbench.colorCustomizations": {
+        "titleBar.activeBackground": "#0047AB",
+        "titleBar.activeForeground": "#ffffff",
+        "titleBar.inactiveBackground": "#003888",
+        "titleBar.inactiveForeground": "#999999",
+        "panel.border": "#003888",
+        "sideBar.border": "#003888",
+        "statusBar.background": "#0047AB",
+        "statusBar.foreground": "#e7e7e7",
+        "terminal.inactiveSelectionBackground": "#3D3D3D",
+        "terminal.selectionBackground": "#474747",
+    },
+    // Profile 14 — Emerald
+    // "workbench.colorCustomizations": {
+    //     "titleBar.activeBackground": "#008B45",
+    //     "titleBar.activeForeground": "#ffffff",
+    //     "titleBar.inactiveBackground": "#006C36",
+    //     "titleBar.inactiveForeground": "#999999",
+    //     "panel.border": "#006C36",
+    //     "sideBar.border": "#006C36",
+    //     "statusBar.background": "#008B45",
+    //     "statusBar.foreground": "#e7e7e7",
+    //     "terminal.inactiveSelectionBackground": "#3D3D3D",
+    //     "terminal.selectionBackground": "#474747",
+    // },
+    // Profile 15 — Sunset Gold
+    // "workbench.colorCustomizations": {
+    //     "titleBar.activeBackground": "#B8860B",
+    //     "titleBar.activeForeground": "#ffffff",
+    //     "titleBar.inactiveBackground": "#926A09",
+    //     "titleBar.inactiveForeground": "#999999",
+    //     "panel.border": "#926A09",
+    //     "sideBar.border": "#926A09",
+    //     "statusBar.background": "#B8860B",
+    //     "statusBar.foreground": "#e7e7e7",
+    //     "terminal.inactiveSelectionBackground": "#3D3D3D",
+    //     "terminal.selectionBackground": "#474747",
+    // },
+    // Profile 16 — Coral Reef
+    // "workbench.colorCustomizations": {
+    //     "titleBar.activeBackground": "#E04040",
+    //     "titleBar.activeForeground": "#ffffff",
+    //     "titleBar.inactiveBackground": "#B33333",
+    //     "titleBar.inactiveForeground": "#999999",
+    //     "panel.border": "#B33333",
+    //     "sideBar.border": "#B33333",
+    //     "statusBar.background": "#E04040",
+    //     "statusBar.foreground": "#e7e7e7",
+    //     "terminal.inactiveSelectionBackground": "#3D3D3D",
+    //     "terminal.selectionBackground": "#474747",
+    // },
+    // Profile 17 — Sapphire
+    // "workbench.colorCustomizations": {
+    //     "titleBar.activeBackground": "#0F52BA",
+    //     "titleBar.activeForeground": "#ffffff",
+    //     "titleBar.inactiveBackground": "#0C4196",
+    //     "titleBar.inactiveForeground": "#999999",
+    //     "panel.border": "#0C4196",
+    //     "sideBar.border": "#0C4196",
+    //     "statusBar.background": "#0F52BA",
+    //     "statusBar.foreground": "#e7e7e7",
+    //     "terminal.inactiveSelectionBackground": "#3D3D3D",
+    //     "terminal.selectionBackground": "#474747",
+    // },
+    // Profile 18 — Plum
+    // "workbench.colorCustomizations": {
+    //     "titleBar.activeBackground": "#7B2D5F",
+    //     "titleBar.activeForeground": "#ffffff",
+    //     "titleBar.inactiveBackground": "#60234A",
+    //     "titleBar.inactiveForeground": "#999999",
+    //     "panel.border": "#60234A",
+    //     "sideBar.border": "#60234A",
+    //     "statusBar.background": "#7B2D5F",
+    //     "statusBar.foreground": "#e7e7e7",
+    //     "terminal.inactiveSelectionBackground": "#3D3D3D",
+    //     "terminal.selectionBackground": "#474747",
+    // },
+    // Profile 19 — Turquoise
+    // "workbench.colorCustomizations": {
+    //     "titleBar.activeBackground": "#00796B",
+    //     "titleBar.activeForeground": "#ffffff",
+    //     "titleBar.inactiveBackground": "#005E54",
+    //     "titleBar.inactiveForeground": "#999999",
+    //     "panel.border": "#005E54",
+    //     "sideBar.border": "#005E54",
+    //     "statusBar.background": "#00796B",
+    //     "statusBar.foreground": "#e7e7e7",
+    //     "terminal.inactiveSelectionBackground": "#3D3D3D",
+    //     "terminal.selectionBackground": "#474747",
+    // },
+    // Profile 20 — Amber
+    // "workbench.colorCustomizations": {
+    //     "titleBar.activeBackground": "#CC7A00",
+    //     "titleBar.activeForeground": "#ffffff",
+    //     "titleBar.inactiveBackground": "#A36200",
+    //     "titleBar.inactiveForeground": "#999999",
+    //     "panel.border": "#A36200",
+    //     "sideBar.border": "#A36200",
+    //     "statusBar.background": "#CC7A00",
+    //     "statusBar.foreground": "#e7e7e7",
+    //     "terminal.inactiveSelectionBackground": "#3D3D3D",
+    //     "terminal.selectionBackground": "#474747",
+    // },
+    "terminal.integrated.suggest.enabled": false,
+    "keyboard.dispatch": "keyCode",
+    // --- Sounds & Accessibility (grouped + documented) ---
+    // Master volume for accessibility signal sounds (0-100).
+    "accessibility.signalOptions.volume": 40,
+    // Legacy/global audio cues behavior: "auto" plays cues when helpful.
+    "audioCues.enabled": "auto",
+    // Terminal bell toggle (separate from accessibility signal bell).
+    "terminal.integrated.enableVisualBell": false,
+    // Chat/agent notification controls.
+    // Sound when a chat/agent response is received (re-enabled for your requested case).
+    "accessibility.signals.chatResponseReceived": {
+        "sound": "on"
+    },
+    // Sound when a chat/agent request is sent.
+    "accessibility.signals.chatRequestSent": {
+        "sound": "off"
+    },
+    // Sound while long-running chat or tool progress is reported.
+    "accessibility.signals.progress": {
+        "sound": "off"
+    },
+    // Sound when AI edits modify files.
+    "accessibility.signals.chatEditModifiedFile": {
+        "sound": "off"
+    },
+    // Sound when chat/agent requires explicit user action.
+    "accessibility.signals.chatUserActionRequired": {
+        "sound": "on"
+    },
+    // Sound when an AI edit batch is kept.
+    "accessibility.signals.editsKept": {
+        "sound": "off"
+    },
+    // Sound when an AI edit batch is undone.
+    "accessibility.signals.editsUndone": {
+        "sound": "off"
+    },
+    // Terminal and command result controls.
+    // Sound when terminal quick fixes become available.
+    "accessibility.signals.terminalQuickFix": {
+        "sound": "off"
+    },
+    // Sound for terminal bell events.
+    "accessibility.signals.terminalBell": {
+        "sound": "off"
+    },
+    // Sound when a terminal command fails.
+    "accessibility.signals.terminalCommandFailed": {
+        "sound": "off"
+    },
+    // Sound when a terminal command succeeds.
+    "accessibility.signals.terminalCommandSucceeded": {
+        "sound": "off"
+    },
+    // Sound when terminal output is cleared.
+    "accessibility.signals.clear": {
+        "sound": "off"
+    },
+    // Editor diagnostics and navigation cues.
+    // Sound when cursor is on an error.
+    "accessibility.signals.positionHasError": {
+        "sound": "off"
+    },
+    // Sound when cursor is on a warning.
+    "accessibility.signals.positionHasWarning": {
+        "sound": "off"
+    },
+    // Sound when current line has an error.
+    "accessibility.signals.lineHasError": {
+        "sound": "off"
+    },
+    // Sound when current line has a warning.
+    "accessibility.signals.lineHasWarning": {
+        "sound": "off"
+    },
+    // Sound when current line contains folded code.
+    "accessibility.signals.lineHasFoldedArea": {
+        "sound": "off"
+    },
+    // Sound when current line contains a breakpoint.
+    "accessibility.signals.lineHasBreakpoint": {
+        "sound": "off"
+    },
+    // Sound when inline suggestion appears.
+    "accessibility.signals.lineHasInlineSuggestion": {
+        "sound": "off"
+    },
+    // Sound when next-edit suggestion is available.
+    "accessibility.signals.nextEditSuggestion": {
+        "sound": "off"
+    },
+    // Sound when no inlay hints are available.
+    "accessibility.signals.noInlayHints": {
+        "sound": "off"
+    },
+    // Build/task/notebook and diff controls.
+    // Sound when a task completes successfully.
+    "accessibility.signals.taskCompleted": {
+        "sound": "off"
+    },
+    // Sound when a task fails.
+    "accessibility.signals.taskFailed": {
+        "sound": "off"
+    },
+    // Sound when notebook cell execution succeeds.
+    "accessibility.signals.notebookCellCompleted": {
+        "sound": "off"
+    },
+    // Sound when notebook cell execution fails.
+    "accessibility.signals.notebookCellFailed": {
+        "sound": "off"
+    },
+    // Sound when a diff has inserted lines.
+    "accessibility.signals.diffLineInserted": {
+        "sound": "off"
+    },
+    // Sound when a diff has deleted lines.
+    "accessibility.signals.diffLineDeleted": {
+        "sound": "off"
+    },
+    // Sound when a diff has modified lines.
+    "accessibility.signals.diffLineModified": {
+        "sound": "off"
+    },
+    // Code action, debug, and voice controls.
+    // Sound when a code action menu is triggered.
+    "accessibility.signals.codeActionTriggered": {
+        "sound": "off"
+    },
+    // Sound when a code action is applied.
+    "accessibility.signals.codeActionApplied": {
+        "sound": "off"
+    },
+    // Sound when debugger hits a breakpoint/stop.
+    "accessibility.signals.onDebugBreak": {
+        "sound": "off"
+    },
+    // Sound when voice recording starts.
+    "accessibility.signals.voiceRecordingStarted": {
+        "sound": "off"
+    },
+    // Sound when voice recording stops.
+    "accessibility.signals.voiceRecordingStopped": {
+        "sound": "off"
+    },
+    // Save/format cue policy: "never", "userGesture", or "always".
+    "accessibility.signals.save": {
+        "sound": "never"
+    },
+    // Format cue policy: "never", "userGesture", or "always".
+    "accessibility.signals.format": {
+        "sound": "never"
+    }
+}
