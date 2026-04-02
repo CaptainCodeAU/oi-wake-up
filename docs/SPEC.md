@@ -174,7 +174,7 @@ Options:
 	"license": "MIT",
 	"repository": {
 		"type": "git",
-		"url": "git+https://github.com/AshGw/oi-wake-up.git"
+		"url": "git+https://github.com/CaptainCodeAU/oi-wake-up.git"
 	},
 	"engines": {
 		"node": ">=18.0.0"
