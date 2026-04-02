@@ -5,13 +5,10 @@ Wake-on-LAN done right. No dependencies, just Node.js.
 ## Install
 
 ```bash
-npm install -g oi-wake-up
-```
-
-Or use as a library:
-
-```bash
-npm install oi-wake-up
+git clone https://github.com/CaptainCodeAU/oi-wake-up.git
+cd oi-wake-up
+pnpm install
+pnpm link --global
 ```
 
 ## CLI Usage
