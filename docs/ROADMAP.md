@@ -21,22 +21,24 @@ Last updated: 2026-05-02
 - ✓ direnv integration (`.envrc` with project info box)
 - ✓ Global install via `pnpm link --global`
 
----
-
-## In progress
-
-### Documentation reorganisation (2026-05-02)
+### Documentation reorganisation (completed 2026-05-02)
 - ✓ Move `docs/CLAUDE.md` → `CLAUDE.md` (root) — auto-loads on every session
 - ✓ Delete `docs/SPEC.md` (60% obsolete, rest covered by README)
 - ✓ Update README install section (GitHub-direct install + zero-dep risk note)
-- ✓ Create this `ROADMAP.md`
+- ✓ Create `docs/ROADMAP.md` (this file)
 - ✓ Create `docs/DECISIONS.md` (7 seed entries)
 - ✓ Create `docs/METAPROMPT.md` (3 saved prompts)
 - ✓ Create `docs/IDEAS.md` (4 seed bullets)
 - ✓ Create `docs/GLOSSARY.md` (~10 WoL terms)
-- 🟡 Cross-link Plans → METAPROMPT.md sections
+- ✓ Cross-link `Plans/` → `METAPROMPT.md` sections (footer in oi-wake-verify plan)
 
-Plan: `Plans/docs-reorg.md`
+Committed as `9b5e24b`. Plan: `Plans/docs-reorg.md` (gitignored).
+
+---
+
+## In progress
+
+*(nothing currently in flight)*
 
 ---
 
