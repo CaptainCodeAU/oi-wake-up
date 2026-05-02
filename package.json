@@ -10,7 +10,8 @@
 		}
 	},
 	"bin": {
-		"oi-wake-up": "./bin/cli.js"
+		"oi-wake-up": "./bin/cli.js",
+		"oi-wake-verify": "./bin/verify.js"
 	},
 	"files": [
 		"src",
