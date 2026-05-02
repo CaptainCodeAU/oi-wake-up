@@ -2,6 +2,9 @@
 
 Wake-on-LAN terminology used throughout this project's docs.
 
+## `--grace` (oi-wake-verify)
+Settle-time inserted between state-changing transitions and the steps that depend on them. On the asleep-and-remediate path, `--grace` runs twice: once after SSH comes up (services may not be ready yet), once after `--remediate` runs (just-restarted services may not be ready yet). Default is 10s; the worked example for the 3090 GPU-rebind workflow uses 25s because the docker container needs ~15–25s post-restart before the model server can serve a real completion request.
+
 ## ARP (Address Resolution Protocol)
 Maps IP addresses to MAC addresses on a local network. Routers cache ARP entries; when an entry expires (typically 1–5 minutes after a host stops responding), unicast packets to that IP no longer reach the host. Subnet broadcast bypasses ARP entirely — relevant to time-limited wake windows (see README troubleshooting).
 
@@ -37,3 +40,15 @@ The 6 bytes of `0xFF` at the start of a magic packet. Lets a NIC's WoL logic det
 
 ## Wake-on-LAN (WoL)
 The protocol implemented by this project: wake a sleeping or shutdown computer by sending a magic packet to its NIC over the network. Originally an AMD/Intel specification from 1995, now ubiquitous on consumer and server hardware.
+
+## warmup recipe (3090-side)
+A `just warmup` recipe in the user's `llmster-server-3090` repo that exercises the actual inference path against the local model server (`localhost:1234`). Sends a cold completion call (paying any JIT-load cost), then a hot completion call, and gates on hot latency being under a threshold. Output is the parseable line `cold_ms=N hot_ms=N threshold_ms=N` to stdout. Used as the canonical `--verify` for `oi-wake-verify` because it tests the layer that actually matters — the GPU/CPU latency gap is ~30× under the threshold for a healthy GPU and 10–30× over for CPU fallback, so a single threshold cleanly separates the two states. See `docs/ROADMAP.md` and the README's worked example.
+
+## broken-CUDA-handle (post-resume)
+The failure mode that motivated `oi-wake-verify`. When Windows sleeps and resumes, the docker container's CUDA device handle becomes stale — the container falls back to CPU silently, with no error returned at the binary level. `nvidia-smi` exits 0 even when GPU access is blocked from inside the container (the failure message is in stdout, not the exit code). `docker restart llmster` (or `just restart` in the llmster repo) re-establishes GPU passthrough in 5–10s; the user's `--verify` should be a real timed inference call, not `nvidia-smi`, because the latter is the wrong layer.
+
+## BatchMode (SSH)
+The `BatchMode=yes` SSH option used by `oi-wake-verify`'s probe and remote-command paths. Disables interactive prompts (host-key acceptance, passphrase requests, password fallback). A connection that would normally show "Are you sure you want to continue connecting?" fails with `Host key verification failed.` instead — visible only at `-d` verbosity in the current implementation (a v1.2 candidate is to surface this at default verbosity).
+
+## host key entry
+A line in `~/.ssh/known_hosts` that records the public key SSH expects from a given host. Each entry is keyed by `hostname` or `[hostname]:port` for non-default ports. Default port (22) entries don't match non-default ports — SSHing to the same physical machine on port 22 and port 2522 needs two separate `known_hosts` lines. The entry can be added interactively (typing `yes` when SSH prompts) or via the `--ssh-opt StrictHostKeyChecking=accept-new` pass-through (`oi-wake-verify` writes the entry as a side-effect of its first probe).

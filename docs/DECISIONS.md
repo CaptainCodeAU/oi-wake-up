@@ -64,3 +64,57 @@ Append-only log of design decisions and their rationale. New entries at the bott
 **Why:** Windows OpenSSH defaults to PowerShell as the remote shell, which (a) parses commands with PowerShell quoting rules instead of bash, (b) breaks `ssh-copy-id` (POSIX shell snippets fail), (c) has the Windows-Admin-keys quirk (`C:\ProgramData\ssh\administrators_authorized_keys`). The WSL-direct path lands in bash, sidesteps all three issues, and is the only path with key auth currently set up.  
 **Alternatives considered:** Windows-port-22 with `wsl.exe -d Ubuntu --` shim — works but requires PowerShell-friendly quoting and the Windows admin-keys workaround. Documented as fallback only.  
 **Status:** Active.
+
+---
+
+## 8. Single `spawnSsh` helper as testable boundary
+**Date:** 2026-05-02.  
+**Decision:** Every `ssh` subprocess call routes through `spawnSsh(args, opts)` in `src/spawn.js`. The orchestrator (`probeSsh`, `pollUntilReachable`, `runRemote`) accepts an injected `spawn` dependency that defaults to this helper.  
+**Why:** Layer 2 tests need to exercise the real orchestrator code path without spawning real ssh processes. Pinning the spawn boundary to one function (~30 lines) means tests swap in `tests/spawn-fake.js` (a recording fake) at one place and exercise every state-machine transition, every documented exit code, and every verbosity tier in <1s with no network. Per the testing pyramid in the design plan, this layer catches ~95% of bugs at much lower cost than a containerised SSH harness.  
+**Alternatives considered:** Mocking at the `node:child_process` module level (heavier, leakier between tests); skipping orchestrator unit-tests and relying on Layer 3 localhost-SSH tests only (slower, environment-dependent, doesn't run in CI without sshd).  
+**Status:** Active.
+
+---
+
+## 9. `--dry-run` skips the SSH probe
+**Date:** 2026-05-02.  
+**Decision:** `--dry-run` does not perform the pre-flight SSH probe. Instead it prints both possible action plans (reachable: noop; unreachable: full wake → wait → grace → remediate → verify chain) and exits 0.  
+**Why:** A probe is itself an action — it spawns `ssh`, opens a TCP connection, attempts auth, takes the documented `--probe-timeout` seconds. "Print planned actions; perform none" cannot do that and stay honest. Printing both branches is more useful than committing to one based on a network round-trip the user explicitly asked us to skip.  
+**Alternatives considered:** Probe-then-print (rejected: violates "perform none"); print only the unreachable branch (rejected: less informative — users frequently dry-run to sanity-check the alias against an awake host).  
+**Status:** Active.
+
+---
+
+## 10. Logger redirects progress to stderr in `--json` mode
+**Date:** 2026-05-02.  
+**Decision:** With `--json` set, the structured JSON object is the *only* thing written to stdout. Step / info / verbose / debug messages still emit, but to stderr, where they continue to respect the verbosity tier.  
+**Why:** Callers piping `oi-wake-verify --json | jq ...` need a clean machine-parseable stream. But verbose/debug progress is still useful for humans watching alongside, so it doesn't make sense to suppress it entirely — stderr is the conventional "humans-only" channel. This is the same convention `curl`, `git`, etc. use for diagnostic output during machine-readable operations.  
+**Alternatives considered:** Suppress all progress in `--json` mode (rejected: loses observability); emit JSON-line progress events (rejected: turns one-shot tool into streaming protocol, larger blast radius).  
+**Status:** Active.
+
+---
+
+## 11. Grace step inserted between `remediate` and `verify`
+**Date:** 2026-05-02 (post real-world testing).  
+**Decision:** When a plan contains both `remediate` and `verify`, a `grace` step is inserted between them. On the asleep-default/force path the plan is now `[wake, wait, grace, remediate, grace, verify]` — `grace` appears twice. On reachable+force/noWake it's `[remediate, grace, verify]`. The grace step's label is "Grace Ns to settle" (position-agnostic), not "before remediation" (which it used to be when it only appeared in one spot).  
+**Why:** Real-world testing against the 3090 surfaced that the post-restart settle period needs explicit time — `just warmup` immediately after `docker compose restart` failed with `warmup_cold_failed=1` because the model wasn't loaded for completions yet (the recipe's `/v1/models` wait loop returns success too early). The original design only graced after `wait` (post-SSH-up), implicitly assuming `remediate` ran fast and `verify` could fire immediately. That's wrong for any remediate that restarts a service. Same "wait for state to settle" problem at a different transition.  
+**Alternatives considered:**
+- Separate `--remediate-settle` flag with its own value (rejected: adds a flag for what the existing `--grace` value covers fine; users who want zero settle-time can pass `--grace 0`).
+- Make grace conditional on `--remediate` having been provided (rejected: needs more state-machine logic for marginal benefit; the grace step is already a no-op when `opts.grace === 0`).
+- Bake the grace into the verify command itself (rejected: pushes timing concerns into every user's verify string; doesn't compose well; obscures what the tool is doing).
+
+The plan-spec change is one line in `decideAction`. The user-facing semantic shift: `--grace` now means "settle time after any state-changing transition", not "settle time before remediation". The README's `--grace` paragraph explicitly notes this.  
+**Status:** Active. **Update 2026-05-02 (PM):** The 3090-side `just warmup` recipe was made self-sufficient (commit `127df36` in the llmster-server-3090 repo), so callers no longer need `--grace 25` for the GPU-rebind workflow — the recipe handles its own readiness wait. The README example was rolled back to default `--grace 10`. The architectural decision (grace between remediate and verify on every relevant plan) still stands as insurance for verify commands that aren't self-sufficient.
+
+---
+
+## 12. `--user` does not auto-default to `$USER`
+**Date:** 2026-05-02 (post real-world testing — surfaced as a bug).  
+**Decision:** When `--user` is not passed, `opts.user` stays `null` and `buildSshArgs` emits the bare host (e.g. `mlbox-ubuntu`) rather than `<user>@<host>`. SSH then resolves the user from `~/.ssh/config`'s Host block (or from its own `$USER` fallback if no Host block matches).  
+**Why:** The original code defaulted `opts.user = process.env.USER ?? null`. This injected the local username into the SSH target string, which **overrode** any `User` directive in the matching `~/.ssh/config` Host block. Real-world bug: with `Host mlbox-ubuntu` defining `User winadmin`, running `oi-wake-verify mlbox-ubuntu …` produced `ssh fonzarelli@mlbox-ubuntu …` instead of `ssh winadmin@mlbox-ubuntu`. SSH config got silently ignored. The fix: don't inject what SSH already handles. Passing the bare alias lets `~/.ssh/config` do its job.  
+**Alternatives considered:**
+- Keep auto-default but warn when `~/.ssh/config` has a conflicting User directive (rejected: requires parsing ~/.ssh/config in the tool; defeats the "let ssh handle resolution" principle).
+- Make auto-default opt-in via a new flag (rejected: adds a flag to fix a thing that should never have happened).
+
+Help text was updated from `--user <user>  SSH user (default: $USER)` to `--user <user>  SSH user (default: ssh's resolution — User from ~/.ssh/config Host block, else $USER)` to make the actual behaviour discoverable.  
+**Status:** Active.

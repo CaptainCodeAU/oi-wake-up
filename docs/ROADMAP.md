@@ -1,6 +1,6 @@
 # Roadmap
 
-Last updated: 2026-05-02
+Last updated: 2026-05-02 (post oi-wake-verify ship)
 
 ## Status legend
 - ✓ Done
@@ -34,6 +34,23 @@ Last updated: 2026-05-02
 
 Committed as `9b5e24b`. Plan: `Plans/docs-reorg.md` (gitignored).
 
+### v1.1.0 — `oi-wake-verify` (second binary, shipped 2026-05-02)
+- ✓ New CLI: wake → SSH probe → remediation → verify, in one idempotent command
+- ✓ Composes existing `wake` and `isValidMAC` from `src/index.js` (zero new runtime deps)
+- ✓ Args-only personalisation; no config file
+- ✓ Stable exit codes (0 / 1 / 2 / 3 / 4 / 5 / 64 / 130) per the design plan
+- ✓ Verbosity tiers: quiet / default / verbose / debug + `--json`
+- ✓ All five state-machine cells exercised end-to-end against the RTX 3090 (live `cold_ms=5974 hot_ms=114 threshold_ms=3000` from `just warmup` after a full sleep cycle)
+- ✓ 57/57 unit tests passing including the spawn-fake Layer-2 integration suite
+
+Surfaces created/modified: `bin/verify.js`, `src/verify.js`, `src/spawn.js`, `tests/verify.test.js`, `tests/spawn-fake.js`, plus README + DECISIONS + CLAUDE.md updates.
+
+Drives: post-resume CUDA passthrough fix on the RTX 3090 LLM rig.  
+Plan (historical): `Plans/i-have-completely-banned-wild-quilt.md`  
+Execution view (historical): `Plans/you-re-picking-up-an-glimmering-hearth.md`
+
+Two real bugs found and fixed during real-world testing — see `DECISIONS.md` #11 (post-remediate grace) and #12 (no `$USER` auto-default). Both have unit-test coverage.
+
 ---
 
 ## In progress
@@ -44,17 +61,17 @@ Committed as `9b5e24b`. Plan: `Plans/docs-reorg.md` (gitignored).
 
 ## Planned
 
-### v1.1.0 — `oi-wake-verify` (second binary)
-- ☐ New CLI: wake → SSH probe → remediation → verify, in one command
-- ☐ Composes existing `wake` and `isValidMAC` from `src/index.js`
-- ☐ Zero new runtime dependencies
-- ☐ Args-only personalisation (no config file)
-- ☐ Stable exit codes (0 / 1 / 2 / 3 / 4 / 5 / 64 / 130)
-- ☐ Verbosity tiers: quiet / default / verbose / debug + `--json`
+### v1.2.0 — observability and ergonomics polish (candidates, none scheduled)
 
-Drives: post-resume CUDA passthrough fix on the RTX 3090 LLM rig.  
-Plan: `Plans/i-have-completely-banned-wild-quilt.md`  
-Implementation prompt: `docs/METAPROMPT.md` → "Implementation: oi-wake-verify"
+These surfaced during v1.1 real-world testing on the 3090. Each is independently shippable; none are required for v1.1's primary use case. Listed in suggested ship order — items with implicit dependencies are noted inline.
+
+- ☐ **Surface probe stderr at default verbosity on probe failure** — *(do this one first)*. Current behavior buries the actual failure reason at `-d`. Host-key errors, connection timeouts, auth failures, and sshd-down each have different fix paths; users shouldn't need debug mode to find out which. General-purpose fix that catches host-key failures *and* anything else weird that surfaces in the future. The SSH-territory agent specifically called this out as their preferred primary fix because it doesn't paper over future failure classes the way an `--accept-new-host` shortcut would.
+- ☐ **`--capture-verify` flag** — include verify command's stdout in the JSON output regardless of verbosity, so automation can extract proof artifacts (e.g. the `cold_ms=N hot_ms=N threshold_ms=N` line from `just warmup`) without scraping `-d` output. Strongest case of the polish bunch — concrete automation need surfaced multiple times during testing and reinforced by the 3090-side agent's parseable output design.
+- ☐ **`--accept-new-host` convenience flag** — *(ship only after probe stderr is surfaced at default verbosity)*. Wraps `--ssh-opt StrictHostKeyChecking=accept-new`. First-run ergonomic improvement; users currently need the verbose pass-through form. **Don't ship this in isolation** — silently auto-accepting host keys that the user can't see (because probe stderr is still buried at `-d`) would be worse than the current footgun. The two flags work together: surface stderr so users see *why* probe failed, then offer the convenience flag as the explicit fix.
+- ☐ **`--forward-agent` flag** — pass `-A` to spawned ssh invocations for verify or remediate commands that need agent forwarding back to the originating host. Lower priority — no current consumer; worth implementing when one materialises.
+- ☐ **ICMP-pre-probe + SSH-probe two-stage liveness** — distinguish "host asleep / off network" from "host reachable but SSH probe failed". Largest design surface; do last, or write a fresh plan in `Plans/` before implementing.
+
+See `IDEAS.md` for the unstarted-ideas inbox; promote items here when scheduled.
 
 ---
 

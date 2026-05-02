@@ -4,7 +4,7 @@ Saved opening prompts for fresh Claude Code sessions. Copy the relevant fenced b
 
 Three prompts live here:
 
-1. **Implementation: oi-wake-verify** — for *building* the planned second binary.
+1. **Iteration: oi-wake-verify v1.2 polish** — for picking up the v1.2 candidates (capture-verify, accept-new-host, forward-agent, two-stage liveness probe, default-verbosity stderr surfacing) on the already-shipped tool.
 2. **Implementation: docs reorganisation** — for adapting or extending the docs structure (the initial reorg is already done).
 3. **Continue design conversation** — for *talking* about design / further refinements.
 
@@ -12,66 +12,80 @@ Don't confuse them. Implementation prompts assume you want code written; the des
 
 ---
 
-## Implementation: oi-wake-verify
+## Iteration: oi-wake-verify v1.2 polish
+
+The v1.1 binary `oi-wake-verify` shipped 2026-05-02 — five state-machine cells exercised end-to-end against real hardware, two real bugs found-and-fixed in the process (post-remediate grace, no-`$USER`-auto-default), 57/57 tests passing. This prompt is for picking up the v1.2 candidates that surfaced during that testing but were parked rather than scope-creep into v1.1.
 
 ```
-You're picking up an implementation task in an existing project. Start cold —
-read the plan and the surrounding code before you write anything.
+You're picking up follow-up work on a shipped tool. The CLI itself is in
+production use; this iteration adds observability and ergonomics polish.
 
 ## Working directory
 /Users/fonzarelli/CODE/CaptainCodeAU/oi-wake-up
 
-## What you're building
-A second CLI binary for this repo: `oi-wake-verify` — wakes a remote machine
-via WoL (only if it's actually asleep), waits for SSH, runs a remediation
-command, optionally verifies. Composes the existing `oi-wake-up` library;
-same repo, second `bin` entry.
+## Current state (do not re-derive)
+- v1.1 has shipped. `bin/verify.js`, `src/verify.js`, `src/spawn.js` exist and
+  work end-to-end. Read `docs/ROADMAP.md` for the shipped scope and the
+  documented v1.2 candidate list.
+- 57/57 unit tests in `tests/verify.test.js` are green. Don't break them.
+- Real-world operating example is in `README.md` (worked example with
+  `--grace 25` and `bash -lc` wrapping rationale).
 
 ## Read these first, in this order
-1. CLAUDE.md                                     ← project rules (auto-loaded; read it explicitly anyway)
-2. Plans/i-have-completely-banned-wild-quilt.md  ← the full plan, source of truth
-3. docs/DECISIONS.md                             ← rationale for binding decisions
-4. src/index.js                                  ← reuse `wake` and `isValidMAC` from here
-5. bin/cli.js                                    ← match this style exactly
-6. tests/index.test.js                           ← match this test style exactly
-7. package.json                                  ← see existing `bin` map and pnpm pin
+1. CLAUDE.md                                     ← auto-loaded; read explicitly anyway
+2. docs/ROADMAP.md                               ← shipped scope + v1.2 candidate list
+3. docs/IDEAS.md                                 ← v1.2 candidate detail with rationale
+4. docs/DECISIONS.md                             ← binding design decisions, including the
+                                                   two real bugs found-and-fixed during testing
+5. bin/verify.js + src/verify.js                 ← the actual code; understand it before extending
+6. tests/verify.test.js                          ← extend, don't replace; match the existing style
+7. README.md                                     ← user-facing surface; update if you add flags
 
-## Hard constraints (non-negotiable)
-- Zero new runtime dependencies. Node built-ins only (`node:dgram`,
-  `node:child_process`, `node:net`, `node:fs`, `node:url`, `node:path`).
-- ESM only. Tabs for indentation. Manual `switch`/`case` arg parsing — no
-  commander, no yargs, no nothing.
+## Hard constraints (non-negotiable, carried from v1.1)
+- Zero new runtime dependencies. Node built-ins only.
+- ESM only. Tabs for indentation. Manual `switch`/`case` arg parsing.
 - Tests via `node:test` + `node:assert/strict`. No test framework dependency.
-- Package manager: pnpm only. Do NOT use npm anywhere — not in commands, not
-  in docs, not in suggestions. Bun is acceptable as an alternative.
-- No config file. CLI args + shell aliases are canonical. Don't add JSON/YAML/
-  TOML config support. The plan's "Non-goals" section is binding.
-- Don't publish or suggest publishing to npm.
+- pnpm-only. Bun acceptable. Never `npm`.
+- No config file. CLI args + shell aliases are canonical.
+
+## Pick one candidate per session
+Don't bundle multiple v1.2 features into one PR. Each is independently
+shippable; treat them as separate iterations. The order I'd recommend
+(per the SSH-territory agent's review of the v1.1 testing transcript):
+
+1. **Surface probe stderr at default verbosity on probe failure** — do this
+   first. One-line change in the executor + one or two tests. General-purpose
+   diagnostic win that catches host-key failures, auth failures, sshd-down,
+   timeouts — all of which today look identical at default verbosity ("probe
+   failed → unreachable"). Ship before any host-key-specific shortcut.
+2. **`--capture-verify`** — concrete automation need, surfaced repeatedly
+   during testing. ~30 LOC + ~3 tests.
+3. **`--accept-new-host`** — only after #1. Silently auto-accepting host keys
+   the user can't see (because probe stderr is still buried) would be worse
+   than the current footgun. Ship this as the explicit fix once #1 makes the
+   failure visible.
+4. **`--forward-agent`** flag — small, but lower priority (no current
+   consumer).
+5. **ICMP-pre-probe two-stage liveness** — biggest design surface; do last,
+   or write a fresh plan in `Plans/` first.
 
 ## Workflow
-1. Read the plan in full. It has Context, Goals, State Machine, CLI Surface,
-   Step-by-step Implementation Order, Pitfalls, and Verification.
-2. Implement the steps in the order listed in the plan.
-3. After each step, run its `Verify:` line and confirm before moving on.
-4. End with the full Verification section at the bottom of the plan.
-5. Don't expand scope. Items in "Future / Out-of-Scope" stay there.
-
-## Stylistic notes the plan doesn't repeat
-- JSDoc comments on exported functions (see `src/index.js` for the pattern).
-- `fileURLToPath(import.meta.url)` for `__dirname` equivalent — already used
-  in `bin/cli.js`.
-- Read version dynamically from `package.json` for `--version` — already used
-  in `bin/cli.js`.
-- `chmod +x bin/verify.js` after creating it (the existing `bin/cli.js` is +x).
+1. Pick a single candidate from the list and confirm with me which.
+2. Sketch the surface change (new flag, struct field, behaviour) before writing.
+3. Implement; extend tests; verify `pnpm test` green.
+4. Update README + DECISIONS if surface or behaviour changed.
+5. Move the candidate from `IDEAS.md` to `ROADMAP.md` "Released" section.
 
 ## Don't
 - Don't commit anything unless I explicitly ask.
-- Don't invent features beyond the plan's CLI Surface section.
-- Don't refactor `src/index.js` or `bin/cli.js` while you're in here.
-- Don't add a config file. Don't add a config file. Don't add a config file.
+- Don't bundle multiple v1.2 candidates.
+- Don't refactor `src/index.js` (the WoL core) or `bin/cli.js` (the original
+  `oi-wake-up` binary) while you're in here.
+- Don't break existing v1.1 tests. If a candidate genuinely needs a behaviour
+  change to existing tests, surface it before changing them.
 
-Begin by reading the plan, then summarize back to me your understanding and
-the order you'll work in before touching any code.
+Begin by reading ROADMAP, IDEAS, and DECISIONS, then ask me which candidate
+to start with.
 ```
 
 ---
@@ -156,34 +170,36 @@ Public repo, MIT, installed globally via `pnpm link --global` or
 `pnpm add -g github:CaptainCodeAU/oi-wake-up`. The tool I use daily to wake
 my RTX 3090 LLM rig (host alias `mlbox`).
 
-## What's currently being designed (not yet implemented)
-A second binary, `oi-wake-verify`, in the same repo. It composes the existing
-WoL library with an SSH probe + remediation flow to fix the post-resume CUDA
-passthrough bug on the 3090 (Docker container loses GPU when Windows resumes
-from sleep; fix is `docker restart llmster` via SSH).
+## What's currently shipped (as of 2026-05-02)
+Two binaries:
+- `oi-wake-up` — the original WoL packet sender (v1.0).
+- `oi-wake-verify` — wake → SSH probe → remediation → verify, in one
+  idempotent command (v1.1, shipped 2026-05-02). Composes `wake` and
+  `isValidMAC` from `src/index.js`. Tested end-to-end against the RTX 3090
+  including the post-resume CUDA passthrough rebind path.
 
-## Source of truth for the design
-`Plans/i-have-completely-banned-wild-quilt.md` — read in full before
-responding. Source of truth for design, CLI surface, state machine, exit
-codes, pitfalls, verification.
+## What might be in flight
+v1.2 candidates surfaced during v1.1 real-world testing — `--capture-verify`,
+`--forward-agent`, `--accept-new-host`, ICMP-pre-probe two-stage liveness,
+default-verbosity probe stderr surfacing. None scheduled. See
+`docs/ROADMAP.md` "Planned" and `docs/IDEAS.md` for detail.
 
-**Do not re-litigate decisions captured in the plan or in DECISIONS.md.**
-Settled:
+## Source of truth
+- `docs/DECISIONS.md` — append-only design decisions log (12 entries as of
+  2026-05-02). Includes the two bugs found-and-fixed during real-world testing.
+- `docs/ROADMAP.md` — shipped scope + v1.2 candidate list.
+- `Plans/i-have-completely-banned-wild-quilt.md` — historical v1.1 design
+  plan (complete; preserved as historical record).
+
+**Do not re-litigate decisions captured in DECISIONS.md.** Settled:
 - Args-only design (no config file)
 - pnpm-only (no npm anywhere — ever)
 - Same repo, second binary in package.json `bin` map
-- Tool name: `oi-wake-verify`
 - Zero new runtime dependencies (Node built-ins only)
 - Reuses `wake` and `isValidMAC` from src/index.js
-
-## Where we left off (as of 2026-05-02)
-The docs reorganisation has been completed (CLAUDE.md at root; docs/ contains
-ROADMAP, DECISIONS, METAPROMPT, IDEAS, GLOSSARY; SPEC.md deleted).
-
-Last open thread before that: a five-layer testing strategy for
-`oi-wake-verify` (unit / spawn-mock integration / optional localhost smoke /
-containerised scenarios / real-hardware manual) was discussed but not folded
-into the plan file. That's the most likely conversation thread to resume.
+- `--grace` applies in two places (post-SSH-up and post-remediate); `--user`
+  doesn't auto-default to `$USER`; `--verify` should test the failing layer
+  (timed inference), not nvidia-smi.
 
 ## How I want you to communicate
 Memory captures it; short version:
