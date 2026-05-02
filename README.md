@@ -55,6 +55,89 @@ oi-wake-up -d 100 AA:BB:CC:DD:EE:FF 11:22:33:44:55:66
 oi-wake-up -f machines.wol
 ```
 
+## Wake + Verify (`oi-wake-verify`)
+
+A second binary in this repo. Wakes a host **only if it's actually asleep**, waits for SSH, runs a remediation command, and optionally verifies. The motivating case: Windows sleep/wake on the RTX 3090 box drops the docker container's GPU passthrough, and this collapses *wake → ssh → `just restart`* into one idempotent command. By default, running it on an already-awake host does nothing.
+
+### Quick start
+
+```bash
+# Wake (if asleep), wait for SSH, restart docker, verify the GPU path.
+oi-wake-verify rtx3090 \
+    --mac 04:7C:16:40:B4:B3 \
+    --remediate "bash -lc 'cd ~/repos/llmster-server-3090 && just restart'" \
+    --verify   "bash -lc 'cd /home/winadmin/repos/llmster-server-3090 && just warmup'"
+
+# Just send the magic packet (don't wait, don't remediate).
+oi-wake-verify rtx3090 --mac 04:7C:16:40:B4:B3 --wake-only
+
+# Already awake? Force the remediation anyway.
+oi-wake-verify rtx3090 --mac 04:7C:16:40:B4:B3 --force \
+    --remediate "bash -lc 'cd ~/repos/llmster-server-3090 && just restart'" \
+    --verify   "bash -lc 'cd /home/winadmin/repos/llmster-server-3090 && just warmup'"
+
+# Show what would happen without doing anything.
+oi-wake-verify rtx3090 --mac 04:7C:16:40:B4:B3 --dry-run -v
+```
+
+**On `--grace`**: applies twice on the wake-and-remediate path — once after SSH comes up (services may not be ready yet), once after `--remediate` runs (just-restarted services may not be ready yet). The default `10` is reasonable when your `--verify` command handles its own readiness wait (e.g. polls until the API can actually serve a request). Bump it if your verify is naive about timing — the cost of being wrong is a `verify failed` exit 5 on a healthy host.
+
+**On wrapping commands in `bash -lc '…'`**: SSH non-interactive command execution uses the target's login shell. If that shell is zsh and your binaries (`just`, project scripts, etc.) are on PATH only via bash's profile, the command will fail with `command not found`. Wrapping the remediate and verify in `bash -lc '…'` forces a bash login shell with full PATH initialisation. Safe even when the target's default shell is bash.
+
+Run `oi-wake-verify --help` for the full flag reference.
+
+### A note on what `--verify` should actually exercise
+
+Pick a verify command that exercises the **failing layer**, not an adjacent one. The motivating case here — Windows sleep/wake silently breaks the docker container's GPU passthrough — is a useful illustration of how easy it is to verify the wrong thing:
+
+- `docker exec llmster nvidia-smi` looks like it tests the GPU, but it doesn't. `nvidia-smi` exits 0 even when the container has lost CUDA access (the `"GPU access blocked"` text goes to stdout, not the exit code). The verify can pass while inference is silently running on CPU at 5–30× the latency.
+- A timed inference call — even a 5-token completion against the smallest loaded model — does test the layer that actually matters. If GPU is healthy you get sub-second latency; on CPU fallback you get seconds.
+
+The example above delegates that decision to a `just warmup` recipe on the target host, which keeps the threshold logic colocated with the models and runtime it depends on. The general principle: your verify should fail when a real workload would.
+
+### Exit codes (stable contract)
+
+| Code | Meaning |
+| ---: | --- |
+| 0    | Success or already-awake (no action needed) |
+| 1    | Misconfiguration |
+| 2    | WoL send failed |
+| 3    | SSH timeout (machine never came up within `--timeout`) |
+| 4    | Remediation command failed |
+| 5    | Verification failed |
+| 64   | Invalid CLI usage (unknown flag, conflicting mode flags) |
+| 130  | Interrupted (SIGINT) |
+
+These are stable — branch on them from cron, Home Assistant, shell wrappers.
+
+### Recommended setup: lean on `~/.ssh/config`
+
+Define the SSH connection details once in `~/.ssh/config`, then the shell alias only carries the wake/remediate bits:
+
+```sshconfig
+# ~/.ssh/config
+Host rtx3090
+    HostName        192.168.1.56
+    User            captain
+    Port            2522                 # WSL-side sshd, NOT Windows-OpenSSH
+    IdentityFile    ~/.ssh/mlbox
+    IdentitiesOnly  yes
+```
+
+```bash
+# ~/.zshrc (or ~/.bashrc)
+alias rtx3090-wake='oi-wake-verify rtx3090 \
+    --mac 04:7C:16:40:B4:B3 \
+    --remediate "bash -lc \"cd ~/repos/llmster-server-3090 && just restart\"" \
+    --verify   "bash -lc \"cd /home/winadmin/repos/llmster-server-3090 && just warmup\""'
+```
+
+**Why port 2522?** SSHing directly to the WSL Ubuntu sshd lands the remediation in `bash`, with normal POSIX quoting and key auth. SSHing to Windows OpenSSH on port 22 lands in PowerShell, which (a) parses commands with PowerShell rules instead of bash, (b) breaks `ssh-copy-id`, and (c) requires `wsl.exe -d Ubuntu --` shimming and the `C:\ProgramData\ssh\administrators_authorized_keys` quirk for Admin accounts. Use the WSL-direct path when you can. The Windows-OpenSSH path works as a fallback — just expect to rewrite the `--remediate` string in PowerShell-friendly form.
+
+### Install
+
+This binary ships in the same package as `oi-wake-up`. Once installed (see [Install](#install) above), both `oi-wake-up` and `oi-wake-verify` are on your `PATH`. **Zero runtime dependencies** — global install via `pnpm link --global` or `pnpm add -g github:CaptainCodeAU/oi-wake-up` is risk-free: no version conflicts, no transitive surface, nothing to audit.
+
 ## Library Usage
 
 ```javascript
