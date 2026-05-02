@@ -4,12 +4,22 @@ Wake-on-LAN done right. No dependencies, just Node.js.
 
 ## Install
 
+### From GitHub (one-liner)
+
+```bash
+pnpm add -g github:CaptainCodeAU/oi-wake-up
+```
+
+### Local development
+
 ```bash
 git clone https://github.com/CaptainCodeAU/oi-wake-up.git
 cd oi-wake-up
 pnpm install
 pnpm link --global
 ```
+
+Because this project has zero runtime dependencies, global install via either method is risk-free — no version conflicts, no transitive surface, nothing to audit. Use bun (`bun add -g github:CaptainCodeAU/oi-wake-up`) if you prefer; npm is not supported for this project.
 
 ## CLI Usage
 
