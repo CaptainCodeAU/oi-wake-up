@@ -108,6 +108,51 @@ The plan-spec change is one line in `decideAction`. The user-facing semantic shi
 
 ---
 
+## 13. `wake()` is async with an injectable socket factory
+**Date:** 2026-05-03.  
+**Decision:** `wake(mac, options, deps)` accepts an optional `deps.createSocket` parameter. When not provided, it falls back to `dgram.createSocket.bind(dgram)`. The function is declared `async` so sync throws (e.g. bad MAC) become rejections rather than escaping the promise chain.  
+**Why:** Mirrors the `spawnSsh` DI pattern from Decision #8. Before this change, `wake()` was the only I/O edge in the project with no test seam — the `dgram` call was untestable without a real network. The `dgram-fake.js` recording fake now exercises `wake()` and `wakeMany()` at the same depth as `spawn-fake.js` covers SSH. Making the function `async` is also the correct API contract — an async function should never throw synchronously.  
+**Alternatives considered:** Keeping `wake` sync and using module-level mocking (rejected: leaky between tests, heavier DI point); keeping `wake` sync and testing only via real UDP (rejected: slower, requires a listening socket).  
+**Status:** Active.
+
+---
+
+## 14. `executePlan`, `VerifyError`, `EXIT` exported from `src/verify.js`
+**Date:** 2026-05-03.  
+**Decision:** `executePlan`, `VerifyError`, and the `EXIT` code map moved from `bin/verify.js` (private) to `src/verify.js` (exported). `executePlan` accepts a `deps` object (`spawn`, `wake`, `sleep`) so every I/O call within it is injectable. `bin/verify.js` shrinks to: parse → execute → flush journal.  
+**Why:** The orchestrator is now a reusable library primitive, not just a CLI implementation detail. Callers can `import { executePlan, decideAction } from 'oi-wake-up/verify'` and compose their own wake pipeline. The `EXIT` codes are part of the stable documented contract (README); exporting them makes that contract consumable programmatically. Moving `executePlan` to the source module also opens it to unit-testing without spawning the CLI binary.  
+**Alternatives considered:** Keep `executePlan` private and only expose `decideAction` + individual step primitives (rejected: forces library consumers to reimplement the dispatcher); keep `EXIT` only in the binary (rejected: breaks programmatic use of exit codes).  
+**Status:** Active.
+
+---
+
+## 15. `wakeMany()` as the primary multi-target primitive
+**Date:** 2026-05-03.  
+**Decision:** Add `wakeMany(targets, opts, deps)` to `src/index.js` that sends N magic packets over a single UDP socket. `bin/cli.js` was refactored to use it instead of looping `wake()`. Per-target `address` and `port` overrides are supported; an optional `delay` between packets is supported.  
+**Why:** The original multi-MAC loop in `bin/cli.js` opened and closed a fresh UDP socket for each MAC. For 2–3 targets this is harmless, but the model is wrong — a single socket can `send` to multiple destinations. Extracting `wakeMany` also keeps the CLI thin and makes batch-wake testable via `dgram-fake` without duplicating the socket-management logic.  
+**Alternatives considered:** Expose a `socket` object from `wake()` and let callers reuse it (rejected: leaks resource management to the caller); make `wake()` accept an array (rejected: conflates single and batch semantics in one function signature).  
+**Status:** Active.
+
+---
+
+## 16. `spawnSsh` output bounded by `maxBuffer` with a truncation marker
+**Date:** 2026-05-03.  
+**Decision:** `spawnSsh` accumulates stdout + stderr into a shared byte counter. When the combined total exceeds `maxBuffer` (default 1 MiB), further chunks are dropped and a `\n[output truncated]` marker is appended to whichever stream crossed the limit. The `oi-wake-verify --max-output <bytes>` flag surfaces `maxBuffer` to the CLI.  
+**Why:** A `--remediate` or `--verify` command that produces large output (e.g. a test suite, a build step, `yes`) would balloon memory unboundedly with the original unbounded string concat. The 1 MiB default is generous enough to capture any normal command output while protecting against runaway processes. The truncation marker makes it obvious in logs that output was cut.  
+**Alternatives considered:** `child_process.spawn` `maxBuffer` option (not available on the streaming API we use, only on `execFile`); silently truncating without a marker (rejected: confusing in logs); rejecting the promise when the limit is hit (rejected: kills the remediation for a non-fatal condition).  
+**Status:** Active.
+
+---
+
+## 17. `--retry-wake` implemented in the `wait` step, not in `decideAction`
+**Date:** 2026-05-03.  
+**Decision:** When `--retry-wake N` is set and the SSH poll times out, `executePlan`'s `wait` case re-sends the magic packet and re-polls, up to N more times, before throwing `SSH_TIMEOUT`. `decideAction` is not modified — it still returns the same static step list regardless of `retryWake`.  
+**Why:** `decideAction` is a pure function mapping `(state, flags) → steps[]`. Inserting dynamic retry-wake steps into the plan (e.g. `[wake, wait, retry-wake, wait, retry-wake, wait, ...]`) would require `decideAction` to know `retryWake` and loop — making it stateful and harder to exhaustively test the state matrix. The retry is an implementation detail of the `wait` step: "keep trying to reach SSH, with occasional re-wakes." This keeps `decideAction` tests unchanged and localises the retry logic to one switch case.  
+**Alternatives considered:** Inserting explicit `retry-wake` step records into `decideAction`'s output (rejected: complicates the planner and test matrix); a separate outer retry loop wrapping the full plan (rejected: re-runs wake + all subsequent steps, not just the SSH poll).  
+**Status:** Active.
+
+---
+
 ## 12. `--user` does not auto-default to `$USER`
 **Date:** 2026-05-02 (post real-world testing — surfaced as a bug).  
 **Decision:** When `--user` is not passed, `opts.user` stays `null` and `buildSshArgs` emits the bare host (e.g. `mlbox-ubuntu`) rather than `<user>@<host>`. SSH then resolves the user from `~/.ssh/config`'s Host block (or from its own `$USER` fallback if no Host block matches).  

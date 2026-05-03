@@ -14,16 +14,17 @@ Wake-on-LAN done right. No dependencies, just Node.js.
 ```
 oi-wake-up/
 ├── src/
-│   ├── index.js          # Core library (wake function, MAC parsing, packet building)
-│   ├── verify.js         # oi-wake-verify internals (parse, decideAction, probe, poll, remediate, logger)
+│   ├── index.js          # Core library (parseMAC, isValidMAC, createMagicPacket, wake, wakeMany)
+│   ├── verify.js         # oi-wake-verify internals (parse, decideAction, executePlan, probe, poll, remediate, logger, VerifyError, EXIT)
 │   └── spawn.js          # spawnSsh — testable boundary for ssh subprocess
 ├── bin/
 │   ├── cli.js            # oi-wake-up — magic packet sender
 │   └── verify.js         # oi-wake-verify — wake + ssh probe + remediation
 ├── tests/
 │   ├── index.test.js     # Tests for src/index.js
-│   ├── verify.test.js    # Tests for src/verify.js (parse, decide, logger, orchestrator)
-│   └── spawn-fake.js     # Recording fake for spawnSsh — used by verify.test.js
+│   ├── verify.test.js    # Tests for src/verify.js (parse, decide, logger, orchestrator, executePlan)
+│   ├── spawn-fake.js     # Recording fake for spawnSsh — used by verify.test.js
+│   └── dgram-fake.js     # Recording fake for dgram socket factory — used by index.test.js
 ├── docs/
 │   ├── ROADMAP.md        # Done / in-progress / planned / parked
 │   ├── DECISIONS.md      # Append-only design-decisions log

@@ -1,6 +1,6 @@
 # Roadmap
 
-Last updated: 2026-05-02 (post oi-wake-verify ship)
+Last updated: 2026-05-03 (post re-architecture)
 
 ## Status legend
 - ✓ Done
@@ -50,6 +50,32 @@ Plan (historical): `Plans/i-have-completely-banned-wild-quilt.md`
 Execution view (historical): `Plans/you-re-picking-up-an-glimmering-hearth.md`
 
 Two real bugs found and fixed during real-world testing — see `DECISIONS.md` #11 (post-remediate grace) and #12 (no `$USER` auto-default). Both have unit-test coverage.
+
+### v1.2.0 — incremental re-architecture (2026-05-03)
+
+Incremental improvement pass across the full codebase. No breaking changes. 78/78 tests.
+
+**Testability**
+- ✓ `wake()` made `async`; accepts optional `deps.createSocket` — mirrors the `spawnSsh` DI pattern. Every I/O edge now has a fake.
+- ✓ `tests/dgram-fake.js` added — recording fake socket factory for `wake()` / `wakeMany()` tests
+- ✓ `tests/spawn-fake.js` — fast-path now honours `opts.signal`; `throw` field documented; `killed` field returned
+
+**Library API**
+- ✓ `wakeMany(targets, opts, deps)` — sends N magic packets over a single UDP socket with optional inter-packet delay; replaces the N-socket loop in `bin/cli.js`
+- ✓ `executePlan`, `VerifyError`, `EXIT` exported from `src/verify.js`; library consumers can now import the full orchestrator pipeline
+- ✓ Subpath exports added: `oi-wake-up/verify` and `oi-wake-up/spawn`
+
+**New CLI flags**
+- ✓ `oi-wake-up --print-packet` — print 102-byte hex dump; do not send
+- ✓ `oi-wake-verify --journal <path>` — append JSON journal entry to a JSONL file on every run
+- ✓ `oi-wake-verify --retry-wake <n>` — re-send magic packet if SSH times out; retry up to N times
+- ✓ `oi-wake-verify --max-output <bytes>` — cap captured stdout+stderr; default 1 MiB
+
+**Robustness**
+- ✓ `spawnSsh` — `maxBuffer` option (default 1 MiB) with `[output truncated]` marker; `sshBin` option for future alternate SSH binaries
+- ✓ `makeOpts(overrides)` test helper in `verify.test.js` — prevents test drift when parser defaults change
+
+Plan: `Plans/if-we-were-to-crispy-axolotl.md`
 
 ---
 

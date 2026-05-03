@@ -35,6 +35,7 @@ Options:
   -q, --quiet            Suppress output
   -f, --file <path>      Read MAC addresses from file
   -d, --delay <ms>       Delay between packets in ms (default: 0)
+  --print-packet         Print 102-byte hex dump; do not send
   -v, --version          Show version
   -h, --help             Show help
 ```
@@ -83,6 +84,12 @@ oi-wake-verify rtx3090 --mac 04:7C:16:40:B4:B3 --dry-run -v
 **On `--grace`**: applies twice on the wake-and-remediate path — once after SSH comes up (services may not be ready yet), once after `--remediate` runs (just-restarted services may not be ready yet). The default `10` is reasonable when your `--verify` command handles its own readiness wait (e.g. polls until the API can actually serve a request). Bump it if your verify is naive about timing — the cost of being wrong is a `verify failed` exit 5 on a healthy host.
 
 **On wrapping commands in `bash -lc '…'`**: SSH non-interactive command execution uses the target's login shell. If that shell is zsh and your binaries (`just`, project scripts, etc.) are on PATH only via bash's profile, the command will fail with `command not found`. Wrapping the remediate and verify in `bash -lc '…'` forces a bash login shell with full PATH initialisation. Safe even when the target's default shell is bash.
+
+**On `--journal <path>`**: appends a JSON record (one line, JSONL) to `<path>` on every run. Useful for cron wrappers, Home Assistant automations, or any consumer that wants a persistent audit trail.
+
+**On `--retry-wake <n>`**: if SSH never comes up within `--timeout`, re-sends the magic packet and re-polls up to `n` additional times before giving up. Useful when the first packet hits the network during MAC-table churn.
+
+**On `--max-output <bytes>`**: caps the stdout + stderr captured from `--remediate` and `--verify` commands (default: 1 MiB). Chatty commands get truncated at the limit with a `[output truncated]` marker; they don't balloon memory or flood the journal.
 
 Run `oi-wake-verify --help` for the full flag reference.
 
@@ -143,7 +150,7 @@ This binary ships in the same package as `oi-wake-up`. Once installed (see [Inst
 ## Library Usage
 
 ```javascript
-import { wake, createMagicPacket, parseMAC, isValidMAC } from 'oi-wake-up';
+import { wake, wakeMany, createMagicPacket, parseMAC, isValidMAC } from 'oi-wake-up';
 
 // Send a magic packet (defaults: broadcast 255.255.255.255, port 9)
 await wake('AA:BB:CC:DD:EE:FF');
@@ -154,6 +161,15 @@ await wake('AA:BB:CC:DD:EE:FF', {
   port: 7,
 });
 
+// Wake multiple targets over a single socket, with an optional inter-packet delay
+await wakeMany(
+  [
+    { mac: 'AA:BB:CC:DD:EE:FF' },
+    { mac: '11:22:33:44:55:66', address: '192.168.1.255' },
+  ],
+  { delay: 100 },   // ms between packets
+);
+
 // Build a packet manually
 const packet = createMagicPacket('AA:BB:CC:DD:EE:FF'); // 102-byte Buffer
 
@@ -163,6 +179,17 @@ isValidMAC('not-a-mac');         // false
 
 // Parse a MAC address
 const buf = parseMAC('AA:BB:CC:DD:EE:FF'); // 6-byte Buffer
+```
+
+The verify orchestrator is also importable for programmatic use:
+
+```javascript
+import { decideAction, executePlan, EXIT } from 'oi-wake-up/verify';
+
+const opts = parseVerifyArgs(['myhost', '--mac', 'AA:BB:CC:DD:EE:FF']);
+const plan = decideAction('unreachable', opts);
+const journal = await executePlan(plan, opts, { log });
+// journal.exit_code is one of the EXIT values
 ```
 
 ## Supported MAC Formats
