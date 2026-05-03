@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { wake, isValidMAC } from '../src/index.js';
+import { wakeMany, isValidMAC, createMagicPacket } from '../src/index.js';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
@@ -24,6 +24,7 @@ Options:
   -q, --quiet            Suppress output
   -f, --file <path>      Read MAC addresses from file
   -d, --delay <ms>       Delay between packets in ms (default: 0)
+      --print-packet     Print magic packet hex; do not send
   -v, --version          Show version
   -h, --help             Show help`);
 }
@@ -55,10 +56,6 @@ function readMACsFromFile(filePath) {
 	return entries;
 }
 
-function sleep(ms) {
-	return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
 async function main() {
 	const args = process.argv.slice(2);
 
@@ -73,6 +70,7 @@ async function main() {
 		quiet: false,
 		file: null,
 		delay: 0,
+		printPacket: false,
 	};
 	const macs = [];
 
@@ -118,6 +116,9 @@ async function main() {
 					console.error('Error: --file requires a path argument');
 					process.exit(1);
 				}
+				break;
+			case '--print-packet':
+				options.printPacket = true;
 				break;
 			case '-d':
 			case '--delay': {
@@ -188,24 +189,28 @@ async function main() {
 		process.exit(1);
 	}
 
-	// Send packets
-	for (let i = 0; i < valid.length; i++) {
-		if (i > 0 && options.delay > 0) {
-			await sleep(options.delay);
-		}
-
-		try {
-			await wake(valid[i].mac, {
-				address: valid[i].address,
-				port: valid[i].port,
-			});
-			if (!options.quiet) {
-				console.log(`Magic packet sent to ${valid[i].mac}`);
+	if (options.printPacket) {
+		for (const t of valid) {
+			const packet = createMagicPacket(t.mac);
+			const hex = packet.toString('hex');
+			const lines = [];
+			for (let b = 0; b < hex.length; b += 32) {
+				const bytes = hex.slice(b, b + 32).match(/.{2}/g).join(' ');
+				lines.push(`  ${String(b / 2).padStart(3, '0')}: ${bytes}`);
 			}
-		} catch (err) {
-			console.error(`Error sending to ${valid[i].mac}: ${err.message}`);
-			process.exit(1);
+			console.log(`Packet for ${t.mac} (${packet.length} bytes):\n${lines.join('\n')}`);
 		}
+		return;
+	}
+
+	try {
+		await wakeMany(valid, { delay: options.delay });
+		if (!options.quiet) {
+			for (const t of valid) console.log(`Magic packet sent to ${t.mac}`);
+		}
+	} catch (err) {
+		console.error(`Error: ${err.message}`);
+		process.exit(1);
 	}
 }
 

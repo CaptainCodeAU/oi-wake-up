@@ -6,13 +6,18 @@
  *   await pollUntilReachable(opts, null, { spawn: fake.spawn });
  *   assert.equal(fake.calls.length, 1);
  *
- * Behaviour:
- *   - Each call dequeues one canned response from the front of the queue.
- *   - If the queue is empty, returns a default `{ code: 0, stdout: '', stderr: '' }`.
- *   - Records every call's argv (and opts) into `calls`.
- *   - `failTimes(n)` queues `n` failures (exit 255) followed by one success — for
- *     poll-loop tests that need "fail N times then come up".
- *   - `delay(ms)` on a queued response inserts artificial latency.
+ * Queued response fields:
+ *   - `code`      — exit code (default 0)
+ *   - `stdout`    — captured stdout (default '')
+ *   - `stderr`    — captured stderr (default '')
+ *   - `durationMs`— reported duration (default 0)
+ *   - `signal`    — signal name (default null)
+ *   - `killed`    — true if killed by signal (default false)
+ *   - `delay`     — artificial latency in ms; honours `opts.signal` abort
+ *   - `throw`     — if truthy, the spawn call rejects with this value as the error
+ *
+ * Helpers:
+ *   - `failTimes(n)` queues `n` failures (exit 255) followed by one success.
  */
 export function createSpawnFake() {
 	const queue = [];
@@ -21,6 +26,10 @@ export function createSpawnFake() {
 	function spawn(args, opts = {}) {
 		calls.push({ args, opts });
 
+		if (opts.signal?.aborted) {
+			return Promise.reject(Object.assign(new Error('aborted'), { name: 'AbortError' }));
+		}
+
 		const next = queue.shift() ?? { code: 0, stdout: '', stderr: '' };
 		const response = {
 			code: next.code ?? 0,
@@ -28,6 +37,7 @@ export function createSpawnFake() {
 			stderr: next.stderr ?? '',
 			durationMs: next.durationMs ?? 0,
 			signal: next.signal ?? null,
+			killed: next.killed ?? false,
 		};
 
 		if (next.delay && next.delay > 0) {

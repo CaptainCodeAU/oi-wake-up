@@ -67,12 +67,17 @@ Polling:
   -t, --timeout <seconds>   Total wake timeout (default: 180)
       --poll <seconds>      SSH poll interval (default: 3)
       --probe-timeout <s>   Initial SSH-probe ConnectTimeout (default: 2)
+      --retry-wake <n>      Re-send magic packet if SSH times out; retry up to N times (default: 0)
+
+Safety:
+      --max-output <bytes>  Truncate captured stdout+stderr at this size (default: 1048576)
 
 Output:
   -q, --quiet               Errors only
   -v, --verbose             Per-step detail + timings
   -d, --debug               Full SSH transcripts and resolved options
       --json                Structured JSON to stdout (overrides verbosity)
+      --journal <path>      Append JSON journal entry to file (JSONL; one object per line)
 
 Standard:
   -h, --help                Show this help
@@ -101,8 +106,11 @@ Note: -d here means debug. The sibling tool (oi-wake-up) uses -d for delay.`;
  * @property {number} timeout
  * @property {number} poll
  * @property {number} probeTimeout
+ * @property {number} maxOutput
+ * @property {number} retryWake
  * @property {'quiet'|'default'|'verbose'|'debug'} level
  * @property {boolean} json
+ * @property {string|null} journal
  * @property {boolean} help
  * @property {boolean} version
  */
@@ -136,8 +144,11 @@ export function parseVerifyArgs(argv) {
 		timeout: 180,
 		poll: 3,
 		probeTimeout: 2,
+		maxOutput: 1048576,
+		retryWake: 0,
 		level: 'default',
 		json: false,
+		journal: null,
 		help: false,
 		version: false,
 	};
@@ -220,6 +231,12 @@ export function parseVerifyArgs(argv) {
 			case '--probe-timeout':
 				opts.probeTimeout = parsePositiveInt(requireValue(argv, ++i, arg), arg);
 				break;
+			case '--retry-wake':
+				opts.retryWake = parseNonNegativeInt(requireValue(argv, ++i, arg), arg);
+				break;
+			case '--max-output':
+				opts.maxOutput = parsePositiveInt(requireValue(argv, ++i, arg), arg);
+				break;
 			case '-q':
 			case '--quiet':
 				opts.level = 'quiet';
@@ -234,6 +251,9 @@ export function parseVerifyArgs(argv) {
 				break;
 			case '--json':
 				opts.json = true;
+				break;
+			case '--journal':
+				opts.journal = requireValue(argv, ++i, arg);
 				break;
 			default:
 				if (arg.startsWith('-')) {
@@ -521,7 +541,7 @@ export async function pollUntilReachable(opts, onProgress, deps = {}) {
  *
  * @param {VerifyOptions} opts
  * @param {string} command
- * @param {{spawn?: typeof spawnSsh, signal?: AbortSignal}} [deps]
+ * @param {{spawn?: typeof spawnSsh, signal?: AbortSignal, maxBuffer?: number}} [deps]
  * @returns {Promise<{code: number, stdout: string, stderr: string, durationMs: number}>}
  */
 export async function runRemote(opts, command, deps = {}) {
@@ -530,7 +550,7 @@ export async function runRemote(opts, command, deps = {}) {
 		batchMode: true,
 		remoteCommand: command,
 	});
-	return spawnFn(args, { signal: deps.signal });
+	return spawnFn(args, { signal: deps.signal, maxBuffer: deps.maxBuffer });
 }
 
 /**
@@ -545,4 +565,172 @@ export async function sendWake(opts, deps = {}) {
 	if (!opts.mac) throw new Error('sendWake called without --mac');
 	const wakeFn = deps.wake ?? wake;
 	await wakeFn(opts.mac, { address: opts.broadcast, port: opts.port });
+}
+
+// ---------------------------------------------------------------------------
+// Shared internals
+// ---------------------------------------------------------------------------
+
+function sleep(ms, signal) {
+	return new Promise((resolve, reject) => {
+		const t = setTimeout(resolve, ms);
+		if (signal) {
+			signal.addEventListener('abort', () => {
+				clearTimeout(t);
+				reject(new Error('aborted'));
+			});
+		}
+	});
+}
+
+// ---------------------------------------------------------------------------
+// VerifyError — carries exit code through the async call stack
+// ---------------------------------------------------------------------------
+
+export class VerifyError extends Error {
+	constructor(exitCode, message) {
+		super(message);
+		this.exitCode = exitCode;
+	}
+}
+
+// ---------------------------------------------------------------------------
+// EXIT — stable exit-code contract (documented in README)
+// ---------------------------------------------------------------------------
+
+export const EXIT = {
+	OK: 0,
+	MISCONFIG: 1,
+	WAKE_FAILED: 2,
+	SSH_TIMEOUT: 3,
+	REMEDIATION_FAILED: 4,
+	VERIFY_FAILED: 5,
+	USAGE: 64,
+	INTERRUPTED: 130,
+};
+
+// ---------------------------------------------------------------------------
+// executePlan — step dispatcher; exported so library consumers get the pipeline
+// ---------------------------------------------------------------------------
+
+/**
+ * Execute an ordered list of steps returned by decideAction.
+ *
+ * @param {ActionStep[]} plan
+ * @param {VerifyOptions} opts
+ * @param {{ log: Logger, journal: object, total: number, ctrl: AbortController }} ctx
+ * @param {{ spawn?: typeof spawnSsh, wake?: Function, sleep?: Function }} [deps]
+ * @returns {Promise<void>}
+ */
+export async function executePlan(plan, opts, ctx, deps = {}) {
+	const { log, journal, total, ctrl } = ctx;
+	const sleepFn = deps.sleep ?? sleep;
+	let stepNum = 1; // 1 was the probe itself
+
+	for (const step of plan) {
+		stepNum++;
+		switch (step.kind) {
+			case 'noop':
+				log.step(stepNum, total, step.reason ?? 'no-op');
+				journal.steps.push({ kind: 'noop', reason: step.reason });
+				return;
+
+			case 'abort':
+				journal.steps.push({ kind: 'abort', reason: step.reason });
+				throw new VerifyError(step.exitCode, step.reason);
+
+			case 'wake':
+				log.step(stepNum, total, `Sending magic packet to ${opts.mac} via ${opts.broadcast}:${opts.port}`);
+				try {
+					await sendWake(opts, { wake: deps.wake });
+					journal.steps.push({ kind: 'wake', ok: true });
+				} catch (err) {
+					journal.steps.push({ kind: 'wake', ok: false, error: err.message });
+					throw new VerifyError(EXIT.WAKE_FAILED, `wake failed: ${err.message}`);
+				}
+				break;
+
+			case 'wait': {
+				log.step(stepNum, total, `Waiting for SSH (timeout=${opts.timeout}s, poll=${opts.poll}s)...`);
+				let lastResult = { ok: false, attempts: 0, totalMs: 0 };
+				for (let retry = 0; retry <= opts.retryWake; retry++) {
+					if (retry > 0) {
+						log.info(`  SSH timeout — re-sending magic packet (retry ${retry}/${opts.retryWake})`);
+						try { await sendWake(opts, { wake: deps.wake }); } catch { /* best-effort */ }
+					}
+					lastResult = await pollUntilReachable(
+						opts,
+						(attempt, code, ms) => log.verbose(`  attempt ${attempt}: code=${code} (${ms}ms)`),
+						{ signal: ctrl.signal, spawn: deps.spawn, sleep: deps.sleep },
+					);
+					if (lastResult.ok) break;
+				}
+				journal.steps.push({
+					kind: 'wait',
+					ok: lastResult.ok,
+					attempts: lastResult.attempts,
+					totalMs: lastResult.totalMs,
+				});
+				if (!lastResult.ok) {
+					throw new VerifyError(
+						EXIT.SSH_TIMEOUT,
+						`SSH never came up within ${opts.timeout}s (${lastResult.attempts} attempts)`,
+					);
+				}
+				log.verbose(`  SSH up after ${Math.round(lastResult.totalMs / 1000)}s, ${lastResult.attempts} attempts`);
+				break;
+			}
+
+			case 'grace':
+				if (opts.grace > 0) {
+					log.step(stepNum, total, `Grace ${opts.grace}s to settle`);
+					await sleepFn(opts.grace * 1000, ctrl.signal);
+					journal.steps.push({ kind: 'grace', seconds: opts.grace });
+				} else {
+					stepNum--;
+				}
+				break;
+
+			case 'remediate':
+				if (!opts.remediate) {
+					stepNum--;
+					continue;
+				}
+				log.step(stepNum, total, `Running remediation: ${opts.remediate}`);
+				{
+					const r = await runRemote(opts, opts.remediate, { signal: ctrl.signal, spawn: deps.spawn, maxBuffer: opts.maxOutput });
+					log.debug(`remediate: code=${r.code} stdout=${r.stdout.trim()} stderr=${r.stderr.trim()}`);
+					journal.steps.push({ kind: 'remediate', code: r.code, durationMs: r.durationMs });
+					if (r.code !== 0) {
+						throw new VerifyError(
+							EXIT.REMEDIATION_FAILED,
+							`remediation failed (exit ${r.code}): ${r.stderr.trim() || r.stdout.trim()}`,
+						);
+					}
+				}
+				break;
+
+			case 'verify':
+				if (!opts.verifyCmd) {
+					stepNum--;
+					continue;
+				}
+				log.step(stepNum, total, `Verifying: ${opts.verifyCmd}`);
+				{
+					const r = await runRemote(opts, opts.verifyCmd, { signal: ctrl.signal, spawn: deps.spawn, maxBuffer: opts.maxOutput });
+					log.debug(`verify: code=${r.code} stdout=${r.stdout.trim()} stderr=${r.stderr.trim()}`);
+					journal.steps.push({ kind: 'verify', code: r.code, durationMs: r.durationMs });
+					if (r.code !== 0) {
+						throw new VerifyError(
+							EXIT.VERIFY_FAILED,
+							`verification failed (exit ${r.code}): ${r.stderr.trim() || r.stdout.trim()}`,
+						);
+					}
+				}
+				break;
+
+			default:
+				throw new Error(`Unknown step kind: ${step.kind}`);
+		}
+	}
 }

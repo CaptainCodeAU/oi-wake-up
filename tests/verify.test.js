@@ -8,8 +8,17 @@ import {
 	probeSsh,
 	pollUntilReachable,
 	runRemote,
+	executePlan,
 } from '../src/verify.js';
 import { createSpawnFake } from './spawn-fake.js';
+
+/**
+ * Build a VerifyOptions object via the real parser so defaults always stay in sync.
+ * Override individual fields with the optional argument.
+ */
+function makeOpts(overrides = {}) {
+	return { ...parseVerifyArgs(['rtx3090', '--mac', '04:7C:16:40:B4:B3']), ...overrides };
+}
 
 // ---------------------------------------------------------------------------
 // parseVerifyArgs
@@ -153,6 +162,36 @@ describe('parseVerifyArgs', () => {
 		assert.equal(b.level, 'verbose');
 		assert.equal(c.level, 'debug');
 		assert.equal(j.json, true);
+	});
+
+	it('--journal stores the path', () => {
+		const o = parseVerifyArgs(['rtx3090', '--mac', '00:11:22:33:44:55', '--journal', '/tmp/wake.jsonl']);
+		assert.equal(o.journal, '/tmp/wake.jsonl');
+	});
+
+	it('journal defaults to null', () => {
+		const o = parseVerifyArgs(['rtx3090', '--mac', '00:11:22:33:44:55']);
+		assert.equal(o.journal, null);
+	});
+
+	it('--retry-wake stores a non-negative integer', () => {
+		const o = parseVerifyArgs(['rtx3090', '--mac', '00:11:22:33:44:55', '--retry-wake', '3']);
+		assert.equal(o.retryWake, 3);
+	});
+
+	it('--retry-wake defaults to 0', () => {
+		const o = parseVerifyArgs(['rtx3090', '--mac', '00:11:22:33:44:55']);
+		assert.equal(o.retryWake, 0);
+	});
+
+	it('--max-output stores the byte limit', () => {
+		const o = parseVerifyArgs(['rtx3090', '--mac', '00:11:22:33:44:55', '--max-output', '65536']);
+		assert.equal(o.maxOutput, 65536);
+	});
+
+	it('--max-output defaults to 1 MiB', () => {
+		const o = parseVerifyArgs(['rtx3090', '--mac', '00:11:22:33:44:55']);
+		assert.equal(o.maxOutput, 1048576);
 	});
 });
 
@@ -330,46 +369,14 @@ describe('createLogger — json mode', () => {
 // ---------------------------------------------------------------------------
 
 describe('buildSshArgs', () => {
-	const base = {
-		host: 'rtx3090',
-		mac: null,
-		broadcast: '255.255.255.255',
-		port: 9,
-		user: null,
-		sshPort: 22,
-		identity: null,
-		sshOpts: [],
-		remediate: null,
-		verifyCmd: null,
-		grace: 10,
-		force: false,
-		wakeOnly: false,
-		noRestart: false,
-		noWake: false,
-		dryRun: false,
-		timeout: 180,
-		poll: 3,
-		probeTimeout: 2,
-		level: 'default',
-		json: false,
-		help: false,
-		version: false,
-	};
-
 	it('emits BatchMode + ConnectTimeout for a probe', () => {
-		const args = buildSshArgs(base, { connectTimeout: 2, remoteCommand: 'true' });
+		const args = buildSshArgs(makeOpts(), { connectTimeout: 2, remoteCommand: 'true' });
 		assert.deepEqual(args, ['-o', 'BatchMode=yes', '-o', 'ConnectTimeout=2', 'rtx3090', 'true']);
 	});
 
 	it('threads identity, ssh-port, user, ssh-opts', () => {
 		const args = buildSshArgs(
-			{
-				...base,
-				user: 'admin',
-				sshPort: 2522,
-				identity: '/p/id',
-				sshOpts: ['StrictHostKeyChecking=no'],
-			},
+			makeOpts({ user: 'admin', sshPort: 2522, identity: '/p/id', sshOpts: ['StrictHostKeyChecking=no'] }),
 			{ connectTimeout: 2, remoteCommand: 'true' },
 		);
 		assert.deepEqual(args, [
@@ -388,7 +395,7 @@ describe('buildSshArgs', () => {
 // Orchestrator (Layer 2 — against the spawn fake)
 // ---------------------------------------------------------------------------
 
-const minOpts = parseVerifyArgs(['rtx3090', '--mac', '04:7C:16:40:B4:B3', '--probe-timeout', '1']);
+const minOpts = makeOpts({ probeTimeout: 1 });
 
 describe('probeSsh', () => {
 	it('reports reachable when ssh exits 0', async () => {
@@ -412,13 +419,7 @@ describe('probeSsh', () => {
 });
 
 describe('pollUntilReachable', () => {
-	const opts = parseVerifyArgs([
-		'rtx3090',
-		'--mac', '04:7C:16:40:B4:B3',
-		'--timeout', '60',
-		'--poll', '1',
-		'--probe-timeout', '1',
-	]);
+	const opts = makeOpts({ timeout: 60, poll: 1, probeTimeout: 1 });
 
 	it('returns ok after N failures then a success', async () => {
 		const fake = createSpawnFake();
@@ -496,5 +497,76 @@ describe('runRemote', () => {
 		const r = await runRemote(minOpts, 'false', { spawn: fake.spawn });
 		assert.equal(r.code, 1);
 		assert.equal(r.stderr, 'oops');
+	});
+});
+
+// ---------------------------------------------------------------------------
+// executePlan (integration — full unreachable path through the spawn fake)
+// ---------------------------------------------------------------------------
+
+describe('executePlan', () => {
+	it('runs the full unreachable path: wake → wait → remediate → verify', async () => {
+		const fake = createSpawnFake();
+		fake.queue({ code: 255 }); // poll attempt 1: not up yet
+		fake.queue({ code: 0 });   // poll attempt 2: SSH up
+		fake.queue({ code: 0, stdout: 'restarted' }); // remediate
+		fake.queue({ code: 0, stdout: 'healthy' });   // verify
+
+		const opts = makeOpts({ remediate: 'restart', verifyCmd: 'check', grace: 0 });
+		const plan = decideAction('unreachable', {});
+		const journal = { host: opts.host, state: 'unreachable', steps: [], exit: 0, durationMs: 0 };
+		const log = createLogger('quiet', false, { stdout: () => {}, stderr: () => {} });
+		const ctrl = new AbortController();
+
+		let wakeCalled = false;
+		await executePlan(plan, opts, { log, journal, total: plan.length + 1, ctrl }, {
+			spawn: fake.spawn,
+			wake: async () => { wakeCalled = true; },
+			sleep: () => Promise.resolve(),
+		});
+
+		assert.ok(wakeCalled, 'wake was called');
+		assert.equal(journal.steps.find((s) => s.kind === 'wake')?.ok, true);
+		assert.equal(journal.steps.find((s) => s.kind === 'wait')?.ok, true);
+		assert.equal(journal.steps.find((s) => s.kind === 'remediate')?.code, 0);
+		assert.equal(journal.steps.find((s) => s.kind === 'verify')?.code, 0);
+		assert.equal(fake.calls.length, 4);
+	});
+
+	it('noop path records and returns early', async () => {
+		const opts = makeOpts({ grace: 0 });
+		const plan = decideAction('reachable', {});
+		const journal = { host: opts.host, state: 'reachable', steps: [], exit: 0, durationMs: 0 };
+		const log = createLogger('quiet', false, { stdout: () => {}, stderr: () => {} });
+		const ctrl = new AbortController();
+
+		await executePlan(plan, opts, { log, journal, total: 2, ctrl });
+
+		assert.equal(journal.steps.length, 1);
+		assert.equal(journal.steps[0].kind, 'noop');
+	});
+
+	it('--retry-wake re-sends wake and re-polls when first SSH poll times out', async () => {
+		const fake = createSpawnFake();
+		// First wait: one failure (deadline expires after 1 attempt at instant sleep)
+		fake.queue({ code: 255 });
+		// Second wait (after retry wake): succeed on first attempt
+		fake.queue({ code: 0 });
+
+		const opts = makeOpts({ retryWake: 1, timeout: 1, poll: 1, probeTimeout: 1, grace: 0 });
+		const plan = decideAction('unreachable', { wakeOnly: false, noRestart: true }); // wake + wait only
+		const journal = { host: opts.host, state: 'unreachable', steps: [], exit: 0, durationMs: 0 };
+		const log = createLogger('quiet', false, { stdout: () => {}, stderr: () => {} });
+		const ctrl = new AbortController();
+
+		let wakeCount = 0;
+		await executePlan(plan, opts, { log, journal, total: plan.length + 1, ctrl }, {
+			spawn: fake.spawn,
+			wake: async () => { wakeCount++; },
+			sleep: () => Promise.resolve(),
+		});
+
+		assert.equal(wakeCount, 2, 'wake step + one retry = 2 total sends');
+		assert.equal(journal.steps.find((s) => s.kind === 'wait')?.ok, true);
 	});
 });

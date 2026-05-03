@@ -55,18 +55,24 @@ export function createMagicPacket(mac) {
 }
 
 /**
+ * @typedef {{ mac: string, address?: string, port?: number }} WakeTarget
+ */
+
+/**
  * Send a Wake-on-LAN magic packet.
  * @param {string} mac
  * @param {{ address?: string, port?: number }} [options]
+ * @param {{ createSocket?: typeof import('node:dgram').createSocket }} [deps]
  * @returns {Promise<void>}
  */
-export function wake(mac, options = {}) {
+export async function wake(mac, options = {}, deps = {}) {
 	const { address = '255.255.255.255', port = 9 } = options;
+	const createSocket = deps.createSocket ?? dgram.createSocket.bind(dgram);
 
 	const packet = createMagicPacket(mac);
 
 	return new Promise((resolve, reject) => {
-		const socket = dgram.createSocket('udp4');
+		const socket = createSocket('udp4');
 
 		socket.once('error', (err) => {
 			socket.close();
@@ -83,6 +89,64 @@ export function wake(mac, options = {}) {
 					resolve();
 				}
 			});
+		});
+	});
+}
+
+/**
+ * Send Wake-on-LAN magic packets to multiple targets over a single UDP socket.
+ * More efficient than calling `wake()` N times when sending to many machines.
+ *
+ * @param {WakeTarget[]} targets
+ * @param {{ delay?: number }} [options] - Inter-packet delay in ms (default 0)
+ * @param {{ createSocket?: typeof import('node:dgram').createSocket }} [deps]
+ * @returns {Promise<void>}
+ */
+export async function wakeMany(targets, options = {}, deps = {}) {
+	if (targets.length === 0) return;
+	const { delay = 0 } = options;
+	const createSocket = deps.createSocket ?? dgram.createSocket.bind(dgram);
+
+	const entries = targets.map((t) => ({
+		packet: createMagicPacket(t.mac),
+		address: t.address ?? '255.255.255.255',
+		port: t.port ?? 9,
+	}));
+
+	return new Promise((outerResolve, outerReject) => {
+		const socket = createSocket('udp4');
+		socket.once('error', (err) => {
+			socket.close();
+			outerReject(err);
+		});
+		socket.bind(() => {
+			socket.setBroadcast(true);
+			let i = 0;
+			function sendNext() {
+				if (i === entries.length) {
+					socket.close();
+					outerResolve();
+					return;
+				}
+				const needDelay = i > 0 && delay > 0;
+				const { packet, address, port } = entries[i++];
+				const doSend = () => {
+					socket.send(packet, 0, packet.length, port, address, (err) => {
+						if (err) {
+							socket.close();
+							outerReject(err);
+							return;
+						}
+						sendNext();
+					});
+				};
+				if (needDelay) {
+					setTimeout(doSend, delay);
+				} else {
+					doSend();
+				}
+			}
+			sendNext();
 		});
 	});
 }

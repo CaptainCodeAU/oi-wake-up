@@ -7,6 +7,12 @@
 	"exports": {
 		".": {
 			"import": "./src/index.js"
+		},
+		"./verify": {
+			"import": "./src/verify.js"
+		},
+		"./spawn": {
+			"import": "./src/spawn.js"
 		}
 	},
 	"bin": {
