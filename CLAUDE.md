@@ -16,14 +16,17 @@ oi-wake-up/
 ├── src/
 │   ├── index.js          # Core library (parseMAC, isValidMAC, createMagicPacket, wake, wakeMany)
 │   ├── verify.js         # oi-wake-verify internals (parse, decideAction, executePlan, probe, poll, remediate, logger, VerifyError, EXIT)
+│   ├── sleep.js          # oi-wake-down internals (parseSleepArgs, decideSleepAction, executeSleepPlan, SleepError, EXIT)
 │   └── spawn.js          # spawnSsh — testable boundary for ssh subprocess
 ├── bin/
 │   ├── cli.js            # oi-wake-up — magic packet sender
-│   └── verify.js         # oi-wake-verify — wake + ssh probe + remediation
+│   ├── verify.js         # oi-wake-verify — wake + ssh probe + remediation
+│   └── sleep.js          # oi-wake-down — remote sleep via SSH
 ├── tests/
 │   ├── index.test.js     # Tests for src/index.js
 │   ├── verify.test.js    # Tests for src/verify.js (parse, decide, logger, orchestrator, executePlan)
-│   ├── spawn-fake.js     # Recording fake for spawnSsh — used by verify.test.js
+│   ├── sleep.test.js     # Tests for src/sleep.js (parse, decide, executor, connection-drop handling)
+│   ├── spawn-fake.js     # Recording fake for spawnSsh — used by verify.test.js and sleep.test.js
 │   └── dgram-fake.js     # Recording fake for dgram socket factory — used by index.test.js
 ├── docs/
 │   ├── ROADMAP.md        # Done / in-progress / planned / parked
@@ -44,6 +47,7 @@ oi-wake-up/
 
 - `node bin/cli.js <mac>` — Send magic packet
 - `node bin/verify.js <host> --mac <mac>` — Wake + ssh probe + remediate
+- `node bin/sleep.js <host>` — Put machine to sleep via SSH
 - `pnpm test` — Run tests
 - `pnpm link --global` — Install both CLIs globally (`oi-wake-up`, `oi-wake-verify`)
 - `pnpm add -g github:CaptainCodeAU/oi-wake-up` — Install from GitHub (no clone needed)

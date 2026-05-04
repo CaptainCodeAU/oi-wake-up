@@ -79,6 +79,26 @@ Plan: `Plans/if-we-were-to-crispy-axolotl.md`
 
 ---
 
+### v1.3.0 — `oi-wake-down` (third binary, 2026-05-04)
+
+Third binary completing the wake/sleep symmetry. SSH into the host, trigger Windows sleep via WSL→Windows interop (`rundll32 SetSuspendState`), confirm the host went unreachable. Idempotent — no-op if already asleep.
+
+- ✓ New CLI `oi-wake-down <host>` — sleep counterpart to `oi-wake-verify`
+- ✓ Default sleep command: `/mnt/c/Windows/System32/rundll32.exe powrprof.dll,SetSuspendState 0,1,0` (Windows via WSL; `--command` override for Linux/macOS)
+- ✓ Idempotent pre-flight probe (already asleep → exit 0, no action)
+- ✓ `--confirm-asleep` (default ON) — polls SSH until host becomes unreachable
+- ✓ `--no-confirm` — fire-and-forget, exit after sending
+- ✓ Connection-drop handling — exit 255 with connection-closed stderr treated as successful delivery (host may sleep before rundll32 returns)
+- ✓ Full diagnostic parity: `--dry-run`, `--json`, `--journal`, `-v`, `-d`, `-q`
+- ✓ Stable exit codes: 0 OK, 1 MISCONFIG, 6 SLEEP_FAILED, 7 SLEEP_NOT_CONFIRMED, 64 USAGE, 130 INTERRUPTED
+- ✓ `src/sleep.js` — parser, state-machine, executor, re-exports shared utils from `src/verify.js`
+- ✓ `oi-wake-up/sleep` subpath export added to `package.json`
+- ✓ 110/110 tests (78 existing + 32 new sleep tests)
+
+Plan: `Plans/on-that-note-is-humble-music.md`
+
+---
+
 ## In progress
 
 *(nothing currently in flight)*

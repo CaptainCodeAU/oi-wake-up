@@ -29,6 +29,12 @@ Media Access Control address — a 6-byte hardware identifier baked into a NIC. 
 ## NIC (Network Interface Controller)
 The network adapter — the ethernet card or chip. For WoL to work, the NIC must (a) have standby power, (b) recognise magic packets containing its own MAC, and (c) signal the motherboard to power on. Realtek RTL8125B and Intel I219/I225 families are common on consumer boards.
 
+## S3 state (Sleep / Suspend-to-RAM)
+ACPI "suspend to RAM" — the machine's CPU and peripherals are powered off, but RAM retains its contents with a small trickle of power. Boot time on resume is fast (~1–3s). Wake-on-LAN reliably triggers an S3 wake on correctly configured hardware. The `oi-wake-down` default (`rundll32 SetSuspendState 0,1,0`) targets S3.
+
+## S4 state (Hibernate / Suspend-to-Disk)
+ACPI "suspend to disk" — RAM contents are saved to the disk and power is cut entirely. Resume requires reading back from disk (~10–30s). WoL can work from S4 on some hardware, but behaviour varies. `SetSuspendState` falls through to S4 if Windows hibernation is enabled (`powercfg /h on`). To ensure S3 (sleep) rather than S4 (hibernate), run `powercfg /h off` on the Windows side — a one-time setup step. The two states are also the difference between `powercfg /a` reporting "Hibernate" vs. "Stand by (S3)" as an available power state.
+
 ## S5 state
 ACPI "soft off" — full shutdown, but with standby power still flowing to the motherboard. WoL from S5 requires the NIC and BIOS to cooperate. Some Realtek drivers expose a separate "Wake on magic packet when system is in S5" toggle that must be enabled.
 

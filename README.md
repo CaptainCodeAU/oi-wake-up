@@ -139,6 +139,8 @@ alias rtx3090-wake='oi-wake-verify rtx3090 \
     --mac AA:BB:CC:DD:EE:FF \
     --remediate "bash -lc \"cd ~/repos/llmster-server-3090 && just restart\"" \
     --verify   "bash -lc \"cd /home/adminuser/repos/llmster-server-3090 && just warmup\""'
+
+alias rtx3090-sleep='oi-wake-down rtx3090'
 ```
 
 **Why port 2522?** SSHing directly to the WSL Ubuntu sshd lands the remediation in `bash`, with normal POSIX quoting and key auth. SSHing to Windows OpenSSH on port 22 lands in PowerShell, which (a) parses commands with PowerShell rules instead of bash, (b) breaks `ssh-copy-id`, and (c) requires `wsl.exe -d Ubuntu --` shimming and the `C:\ProgramData\ssh\administrators_authorized_keys` quirk for Admin accounts. Use the WSL-direct path when you can. The Windows-OpenSSH path works as a fallback — just expect to rewrite the `--remediate` string in PowerShell-friendly form.
@@ -146,6 +148,59 @@ alias rtx3090-wake='oi-wake-verify rtx3090 \
 ### Install
 
 This binary ships in the same package as `oi-wake-up`. Once installed (see [Install](#install) above), both `oi-wake-up` and `oi-wake-verify` are on your `PATH`. **Zero runtime dependencies** — global install via `pnpm link --global` or `pnpm add -g github:CaptainCodeAU/oi-wake-up` is risk-free: no version conflicts, no transitive surface, nothing to audit.
+
+## Remote Sleep (`oi-wake-down`)
+
+A third binary that completes the wake/sleep symmetry. SSHes into the host, sends a sleep command, and polls until the host becomes unreachable. Idempotent — if the host is already unreachable, exits 0 with no action.
+
+### Quick start
+
+```bash
+# Put the machine to sleep and confirm it went unreachable.
+oi-wake-down mymachine
+
+# Fire-and-forget — send the sleep command without waiting.
+oi-wake-down mymachine --no-confirm
+
+# Show what would happen without doing anything.
+oi-wake-down mymachine --dry-run -v
+```
+
+**Default sleep command (Windows via WSL):** `/mnt/c/Windows/System32/rundll32.exe powrprof.dll,SetSuspendState 0,1,0`. Override with `--command` for other platforms:
+
+```bash
+oi-wake-down mylinuxbox --command 'sudo systemctl suspend'
+oi-wake-down mymac      --command 'pmset sleepnow'
+```
+
+**Gotcha — hibernate vs. sleep:** if Windows hibernation is enabled, `SetSuspendState` silently hibernates instead of sleeping. One-time fix on the Windows side:
+
+```powershell
+powercfg /h off
+```
+
+See [docs/GLOSSARY.md](docs/GLOSSARY.md) for the S3 vs. S4 distinction.
+
+**Connection-drop handling:** when the host sleeps before `rundll32` returns, SSH reports exit 255 with a "connection closed" or "broken pipe" message. `oi-wake-down` treats this as successful delivery and continues to the confirm-asleep poll — it is not treated as a failure.
+
+Run `oi-wake-down --help` for the full flag reference.
+
+### Exit codes (stable contract)
+
+| Code | Meaning |
+| ---: | --- |
+| 0    | Success or already asleep (no action needed) |
+| 1    | Misconfiguration |
+| 6    | Sleep command failed (non-connection-drop error) |
+| 7    | Sleep not confirmed — host still reachable after `--timeout` seconds |
+| 64   | Invalid CLI usage |
+| 130  | Interrupted (SIGINT) |
+
+### Install
+
+Same package as `oi-wake-up` — `oi-wake-down` is available once installed (see [Install](#install) above).
+
+---
 
 ## Library Usage
 
