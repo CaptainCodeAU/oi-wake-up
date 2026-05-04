@@ -266,7 +266,7 @@ oi-wake-up -i 192.168.1.255 AA:BB:CC:DD:EE:FF
 oi-wake-verify rtx3090 \
     --mac AA:BB:CC:DD:EE:FF \
     --remediate "bash -lc 'cd ~/repos/llmster-server-3090 && just restart'" \
-    --verify   "bash -lc 'cd /home/winadmin/repos/llmster-server-3090 && just warmup'" \
+    --verify   "bash -lc 'cd /home/adminuser/repos/llmster-server-3090 && just warmup'" \
     --grace 10 \
     -v
 # Exits 0 if asleep→woken→remediated→verified, OR if already awake.
@@ -280,7 +280,7 @@ oi-wake-verify rtx3090 \
     --mac AA:BB:CC:DD:EE:FF \
     --force \
     --remediate "bash -lc 'cd ~/repos/llmster-server-3090 && just restart'" \
-    --verify   "bash -lc 'cd /home/winadmin/repos/llmster-server-3090 && just warmup'"
+    --verify   "bash -lc 'cd /home/adminuser/repos/llmster-server-3090 && just warmup'"
 ```
 
 ### 4. Machine-readable run — for parsing in another agent

@@ -67,7 +67,7 @@ A second binary in this repo. Wakes a host **only if it's actually asleep**, wai
 oi-wake-verify rtx3090 \
     --mac AA:BB:CC:DD:EE:FF \
     --remediate "bash -lc 'cd ~/repos/llmster-server-3090 && just restart'" \
-    --verify   "bash -lc 'cd /home/winadmin/repos/llmster-server-3090 && just warmup'"
+    --verify   "bash -lc 'cd /home/adminuser/repos/llmster-server-3090 && just warmup'"
 
 # Just send the magic packet (don't wait, don't remediate).
 oi-wake-verify rtx3090 --mac AA:BB:CC:DD:EE:FF --wake-only
@@ -75,7 +75,7 @@ oi-wake-verify rtx3090 --mac AA:BB:CC:DD:EE:FF --wake-only
 # Already awake? Force the remediation anyway.
 oi-wake-verify rtx3090 --mac AA:BB:CC:DD:EE:FF --force \
     --remediate "bash -lc 'cd ~/repos/llmster-server-3090 && just restart'" \
-    --verify   "bash -lc 'cd /home/winadmin/repos/llmster-server-3090 && just warmup'"
+    --verify   "bash -lc 'cd /home/adminuser/repos/llmster-server-3090 && just warmup'"
 
 # Show what would happen without doing anything.
 oi-wake-verify rtx3090 --mac AA:BB:CC:DD:EE:FF --dry-run -v
@@ -138,7 +138,7 @@ Host rtx3090
 alias rtx3090-wake='oi-wake-verify rtx3090 \
     --mac AA:BB:CC:DD:EE:FF \
     --remediate "bash -lc \"cd ~/repos/llmster-server-3090 && just restart\"" \
-    --verify   "bash -lc \"cd /home/winadmin/repos/llmster-server-3090 && just warmup\""'
+    --verify   "bash -lc \"cd /home/adminuser/repos/llmster-server-3090 && just warmup\""'
 ```
 
 **Why port 2522?** SSHing directly to the WSL Ubuntu sshd lands the remediation in `bash`, with normal POSIX quoting and key auth. SSHing to Windows OpenSSH on port 22 lands in PowerShell, which (a) parses commands with PowerShell rules instead of bash, (b) breaks `ssh-copy-id`, and (c) requires `wsl.exe -d Ubuntu --` shimming and the `C:\ProgramData\ssh\administrators_authorized_keys` quirk for Admin accounts. Use the WSL-direct path when you can. The Windows-OpenSSH path works as a fallback — just expect to rewrite the `--remediate` string in PowerShell-friendly form.
