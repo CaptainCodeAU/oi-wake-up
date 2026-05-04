@@ -65,20 +65,20 @@ A second binary in this repo. Wakes a host **only if it's actually asleep**, wai
 ```bash
 # Wake (if asleep), wait for SSH, restart docker, verify the GPU path.
 oi-wake-verify rtx3090 \
-    --mac 04:7C:16:40:B4:B3 \
+    --mac AA:BB:CC:DD:EE:FF \
     --remediate "bash -lc 'cd ~/repos/llmster-server-3090 && just restart'" \
     --verify   "bash -lc 'cd /home/winadmin/repos/llmster-server-3090 && just warmup'"
 
 # Just send the magic packet (don't wait, don't remediate).
-oi-wake-verify rtx3090 --mac 04:7C:16:40:B4:B3 --wake-only
+oi-wake-verify rtx3090 --mac AA:BB:CC:DD:EE:FF --wake-only
 
 # Already awake? Force the remediation anyway.
-oi-wake-verify rtx3090 --mac 04:7C:16:40:B4:B3 --force \
+oi-wake-verify rtx3090 --mac AA:BB:CC:DD:EE:FF --force \
     --remediate "bash -lc 'cd ~/repos/llmster-server-3090 && just restart'" \
     --verify   "bash -lc 'cd /home/winadmin/repos/llmster-server-3090 && just warmup'"
 
 # Show what would happen without doing anything.
-oi-wake-verify rtx3090 --mac 04:7C:16:40:B4:B3 --dry-run -v
+oi-wake-verify rtx3090 --mac AA:BB:CC:DD:EE:FF --dry-run -v
 ```
 
 **On `--grace`**: applies twice on the wake-and-remediate path — once after SSH comes up (services may not be ready yet), once after `--remediate` runs (just-restarted services may not be ready yet). The default `10` is reasonable when your `--verify` command handles its own readiness wait (e.g. polls until the API can actually serve a request). Bump it if your verify is naive about timing — the cost of being wrong is a `verify failed` exit 5 on a healthy host.
@@ -126,17 +126,17 @@ Define the SSH connection details once in `~/.ssh/config`, then the shell alias 
 ```sshconfig
 # ~/.ssh/config
 Host rtx3090
-    HostName        192.168.1.56
-    User            captain
+    HostName        192.168.1.10
+    User            youruser
     Port            2522                 # WSL-side sshd, NOT Windows-OpenSSH
-    IdentityFile    ~/.ssh/mlbox
+    IdentityFile    ~/.ssh/mymachine
     IdentitiesOnly  yes
 ```
 
 ```bash
 # ~/.zshrc (or ~/.bashrc)
 alias rtx3090-wake='oi-wake-verify rtx3090 \
-    --mac 04:7C:16:40:B4:B3 \
+    --mac AA:BB:CC:DD:EE:FF \
     --remediate "bash -lc \"cd ~/repos/llmster-server-3090 && just restart\"" \
     --verify   "bash -lc \"cd /home/winadmin/repos/llmster-server-3090 && just warmup\""'
 ```

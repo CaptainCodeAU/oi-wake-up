@@ -255,8 +255,8 @@ A single JSON object on stdout (progress moves to stderr). Shape:
 ### 1. Fire-and-forget wake (most common, lowest cost)
 
 ```bash
-oi-wake-up -i 192.168.1.255 04:7C:16:40:B4:B3
-# stdout: "Magic packet sent to 04:7C:16:40:B4:B3"
+oi-wake-up -i 192.168.1.255 AA:BB:CC:DD:EE:FF
+# stdout: "Magic packet sent to AA:BB:CC:DD:EE:FF"
 # exit: 0
 ```
 
@@ -264,7 +264,7 @@ oi-wake-up -i 192.168.1.255 04:7C:16:40:B4:B3
 
 ```bash
 oi-wake-verify rtx3090 \
-    --mac 04:7C:16:40:B4:B3 \
+    --mac AA:BB:CC:DD:EE:FF \
     --remediate "bash -lc 'cd ~/repos/llmster-server-3090 && just restart'" \
     --verify   "bash -lc 'cd /home/winadmin/repos/llmster-server-3090 && just warmup'" \
     --grace 10 \
@@ -277,7 +277,7 @@ oi-wake-verify rtx3090 \
 
 ```bash
 oi-wake-verify rtx3090 \
-    --mac 04:7C:16:40:B4:B3 \
+    --mac AA:BB:CC:DD:EE:FF \
     --force \
     --remediate "bash -lc 'cd ~/repos/llmster-server-3090 && just restart'" \
     --verify   "bash -lc 'cd /home/winadmin/repos/llmster-server-3090 && just warmup'"
@@ -287,7 +287,7 @@ oi-wake-verify rtx3090 \
 
 ```bash
 oi-wake-verify rtx3090 \
-    --mac 04:7C:16:40:B4:B3 \
+    --mac AA:BB:CC:DD:EE:FF \
     --remediate "..." \
     --verify "..." \
     --json | jq '{exit, state, durationMs, steps: [.steps[].kind]}'
@@ -305,7 +305,7 @@ oi-wake-verify rtx3090 --no-wake --probe-timeout 3 -q
 ```javascript
 import { wake, isValidMAC } from 'oi-wake-up';
 
-const mac = '04:7C:16:40:B4:B3';
+const mac = 'AA:BB:CC:DD:EE:FF';
 if (!isValidMAC(mac)) throw new Error(`bad MAC: ${mac}`);
 
 await wake(mac, { address: '192.168.1.255', port: 9 });

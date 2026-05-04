@@ -17,7 +17,7 @@ import { createSpawnFake } from './spawn-fake.js';
  * Override individual fields with the optional argument.
  */
 function makeOpts(overrides = {}) {
-	return { ...parseVerifyArgs(['rtx3090', '--mac', '04:7C:16:40:B4:B3']), ...overrides };
+	return { ...parseVerifyArgs(['rtx3090', '--mac', 'AA:BB:CC:DD:EE:FF']), ...overrides };
 }
 
 // ---------------------------------------------------------------------------
@@ -26,9 +26,9 @@ function makeOpts(overrides = {}) {
 
 describe('parseVerifyArgs', () => {
 	it('parses a minimal invocation', () => {
-		const o = parseVerifyArgs(['rtx3090', '--mac', '04:7C:16:40:B4:B3']);
+		const o = parseVerifyArgs(['rtx3090', '--mac', 'AA:BB:CC:DD:EE:FF']);
 		assert.equal(o.host, 'rtx3090');
-		assert.equal(o.mac, '04:7C:16:40:B4:B3');
+		assert.equal(o.mac, 'AA:BB:CC:DD:EE:FF');
 		assert.equal(o.broadcast, '255.255.255.255');
 		assert.equal(o.port, 9);
 		assert.equal(o.sshPort, 22);
@@ -127,13 +127,13 @@ describe('parseVerifyArgs', () => {
 			'--mac', '00:11:22:33:44:55',
 			'--user', 'admin',
 			'--ssh-port', '2522',
-			'--identity', '/home/me/.ssh/mlbox',
+			'--identity', '/home/me/.ssh/mymachine',
 			'--ssh-opt', 'StrictHostKeyChecking=accept-new',
 			'--ssh-opt', 'ServerAliveInterval=30',
 		]);
 		assert.equal(o.user, 'admin');
 		assert.equal(o.sshPort, 2522);
-		assert.equal(o.identity, '/home/me/.ssh/mlbox');
+		assert.equal(o.identity, '/home/me/.ssh/mymachine');
 		assert.deepEqual(o.sshOpts, [
 			'StrictHostKeyChecking=accept-new',
 			'ServerAliveInterval=30',
@@ -436,7 +436,7 @@ describe('pollUntilReachable', () => {
 	it('reports !ok when timeout elapses', async () => {
 		const tightOpts = parseVerifyArgs([
 			'rtx3090',
-			'--mac', '04:7C:16:40:B4:B3',
+			'--mac', 'AA:BB:CC:DD:EE:FF',
 			'--timeout', '1',
 			'--poll', '1',
 			'--probe-timeout', '1',

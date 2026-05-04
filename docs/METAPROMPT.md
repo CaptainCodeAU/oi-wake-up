@@ -21,7 +21,7 @@ You're picking up follow-up work on a shipped tool. The CLI itself is in
 production use; this iteration adds observability and ergonomics polish.
 
 ## Working directory
-/Users/fonzarelli/CODE/CaptainCodeAU/oi-wake-up
+~/CODE/CaptainCodeAU/oi-wake-up
 
 ## Current state (do not re-derive)
 - v1.1 has shipped. `bin/verify.js`, `src/verify.js`, `src/spawn.js` exist and
@@ -99,7 +99,7 @@ You're picking up documentation maintenance work in an existing Node.js project.
 The initial docs reorganisation has already been done.
 
 ## Working directory
-/Users/fonzarelli/CODE/CaptainCodeAU/oi-wake-up
+~/CODE/CaptainCodeAU/oi-wake-up
 
 ## Current docs state
 - CLAUDE.md (root) — project rules, auto-loaded
@@ -156,19 +156,19 @@ For when you want to keep iterating on design ideas, not start implementation.
 ```
 You're picking up an in-progress design conversation in a personal Node.js
 project. I'm CaptainCodeAU. The memory at
-~/.claude/projects/-Users-fonzarelli-CODE-CaptainCodeAU-oi-wake-up/memory/
+~/.claude/projects/<your-project-memory>/memory/
 should auto-load and give you most of the context (my preferences, project
 state, the 3090 box, SSH conventions). Read MEMORY.md first if it isn't
 already loaded.
 
 ## Working directory
-/Users/fonzarelli/CODE/CaptainCodeAU/oi-wake-up
+~/CODE/CaptainCodeAU/oi-wake-up
 
 ## What this project is
 `oi-wake-up` — a zero-dependency Wake-on-LAN CLI + library in pure Node.js.
 Public repo, MIT, installed globally via `pnpm link --global` or
 `pnpm add -g github:CaptainCodeAU/oi-wake-up`. The tool I use daily to wake
-my RTX 3090 LLM rig (host alias `mlbox`).
+my RTX 3090 LLM rig (host alias `mymachine`).
 
 ## What's currently shipped (as of 2026-05-02)
 Two binaries:

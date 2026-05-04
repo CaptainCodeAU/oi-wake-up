@@ -43,7 +43,7 @@ Append-only log of design decisions and their rationale. New entries at the bott
 ## 5. Args + shell aliases over config files (for personal-use CLIs)
 **Date:** 2026-05-01.  
 **Decision:** Personalisation goes through CLI flags + shell aliases, not a JSON/YAML/TOML config file.  
-**Why:** The user's existing `wakeup` alias pattern (`oi-wake-up -i 192.168.1.255 04:7C:16:40:B4:B3`) proves the model works. Aliases live in `~/.zshrc` (or `~/.ssh/config` for SSH-related values) where they belong; a config file would duplicate functionality. Public-repo users copy example aliases from the README.  
+**Why:** The user's existing `wakeup` alias pattern (`oi-wake-up -i 192.168.1.255 AA:BB:CC:DD:EE:FF`) proves the model works. Aliases live in `~/.zshrc` (or `~/.ssh/config` for SSH-related values) where they belong; a config file would duplicate functionality. Public-repo users copy example aliases from the README.  
 **Alternatives considered:** JSON config with multi-target schema, precedence chain, `--list-targets` — proposed and explicitly rejected. Reconsider only if 3+ first-class targets emerge or schema needs become real.  
 **Status:** Active.
 
@@ -60,7 +60,7 @@ Append-only log of design decisions and their rationale. New entries at the bott
 
 ## 7. WSL-direct SSH (port 2522) over Windows-OpenSSH + `wsl.exe` shim
 **Date:** 2026-05-02.  
-**Decision:** For remediation commands targeting the RTX 3090 (`mlbox`), use SSH directly to the WSL Ubuntu sshd on port 2522, not via Windows OpenSSH (port 22) + `wsl.exe`.  
+**Decision:** For remediation commands targeting the RTX 3090 (`mymachine`), use SSH directly to the WSL Ubuntu sshd on port 2522, not via Windows OpenSSH (port 22) + `wsl.exe`.  
 **Why:** Windows OpenSSH defaults to PowerShell as the remote shell, which (a) parses commands with PowerShell quoting rules instead of bash, (b) breaks `ssh-copy-id` (POSIX shell snippets fail), (c) has the Windows-Admin-keys quirk (`C:\ProgramData\ssh\administrators_authorized_keys`). The WSL-direct path lands in bash, sidesteps all three issues, and is the only path with key auth currently set up.  
 **Alternatives considered:** Windows-port-22 with `wsl.exe -d Ubuntu --` shim — works but requires PowerShell-friendly quoting and the Windows admin-keys workaround. Documented as fallback only.  
 **Status:** Active.
@@ -155,8 +155,8 @@ The plan-spec change is one line in `decideAction`. The user-facing semantic shi
 
 ## 12. `--user` does not auto-default to `$USER`
 **Date:** 2026-05-02 (post real-world testing — surfaced as a bug).  
-**Decision:** When `--user` is not passed, `opts.user` stays `null` and `buildSshArgs` emits the bare host (e.g. `mlbox-ubuntu`) rather than `<user>@<host>`. SSH then resolves the user from `~/.ssh/config`'s Host block (or from its own `$USER` fallback if no Host block matches).  
-**Why:** The original code defaulted `opts.user = process.env.USER ?? null`. This injected the local username into the SSH target string, which **overrode** any `User` directive in the matching `~/.ssh/config` Host block. Real-world bug: with `Host mlbox-ubuntu` defining `User winadmin`, running `oi-wake-verify mlbox-ubuntu …` produced `ssh fonzarelli@mlbox-ubuntu …` instead of `ssh winadmin@mlbox-ubuntu`. SSH config got silently ignored. The fix: don't inject what SSH already handles. Passing the bare alias lets `~/.ssh/config` do its job.  
+**Decision:** When `--user` is not passed, `opts.user` stays `null` and `buildSshArgs` emits the bare host (e.g. `mymachine-ubuntu`) rather than `<user>@<host>`. SSH then resolves the user from `~/.ssh/config`'s Host block (or from its own `$USER` fallback if no Host block matches).  
+**Why:** The original code defaulted `opts.user = process.env.USER ?? null`. This injected the local username into the SSH target string, which **overrode** any `User` directive in the matching `~/.ssh/config` Host block. Real-world bug: with `Host mymachine-ubuntu` defining `User winadmin`, running `oi-wake-verify mymachine-ubuntu …` produced `ssh localuser@mymachine-ubuntu …` instead of `ssh winadmin@mymachine-ubuntu`. SSH config got silently ignored. The fix: don't inject what SSH already handles. Passing the bare alias lets `~/.ssh/config` do its job.  
 **Alternatives considered:**
 - Keep auto-default but warn when `~/.ssh/config` has a conflicting User directive (rejected: requires parsing ~/.ssh/config in the tool; defeats the "let ssh handle resolution" principle).
 - Make auto-default opt-in via a new flag (rejected: adds a flag to fix a thing that should never have happened).
