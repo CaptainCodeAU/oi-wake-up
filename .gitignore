@@ -27,3 +27,8 @@ coverage/
 # Project
 .claude/
 Plans/
+
+# Private docs (personal setup context — kept locally only)
+docs/AGENT_BRIEF.md
+docs/DECISIONS.md
+docs/METAPROMPT.md
