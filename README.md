@@ -239,7 +239,7 @@ const buf = parseMAC('AA:BB:CC:DD:EE:FF'); // 6-byte Buffer
 The verify orchestrator is also importable for programmatic use:
 
 ```javascript
-import { decideAction, executePlan, EXIT } from 'oi-wake-up/verify';
+import { parseVerifyArgs, decideAction, executePlan, EXIT } from 'oi-wake-up/verify';
 
 const opts = parseVerifyArgs(['myhost', '--mac', 'AA:BB:CC:DD:EE:FF']);
 const plan = decideAction('unreachable', opts);
