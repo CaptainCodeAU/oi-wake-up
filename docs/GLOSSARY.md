@@ -3,7 +3,7 @@
 Wake-on-LAN terminology used throughout this project's docs.
 
 ## `--grace` (oi-wake-verify)
-Settle-time inserted between state-changing transitions and the steps that depend on them. On the asleep-and-remediate path, `--grace` runs twice: once after SSH comes up (services may not be ready yet), once after `--remediate` runs (just-restarted services may not be ready yet). Default is 10s; the worked example for the 3090 GPU-rebind workflow uses 25s because the docker container needs ~15–25s post-restart before the model server can serve a real completion request.
+Settle-time inserted between state-changing transitions and the steps that depend on them. On the asleep-and-remediate path, `--grace` runs twice: once after SSH comes up (services may not be ready yet), once after `--remediate` runs (just-restarted services may not be ready yet). Default is 10s and is sufficient when the `--verify` command does its own readiness wait (e.g. polls until the API can serve a real request before returning). Bump it only for naive verifiers that fire immediately and assume the service is ready. The 3090 GPU-rebind worked example originally needed `--grace 25` while the `just warmup` recipe was naive about timing; once the recipe was made self-sufficient (DECISIONS #11, 2026-05-02 PM), the example was rolled back to the default 10s.
 
 ## ARP (Address Resolution Protocol)
 Maps IP addresses to MAC addresses on a local network. Routers cache ARP entries; when an entry expires (typically 1–5 minutes after a host stops responding), unicast packets to that IP no longer reach the host. Subnet broadcast bypasses ARP entirely — relevant to time-limited wake windows (see README troubleshooting).

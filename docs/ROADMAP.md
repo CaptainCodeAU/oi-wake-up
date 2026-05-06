@@ -1,6 +1,6 @@
 # Roadmap
 
-Last updated: 2026-05-03 (post re-architecture)
+Last updated: 2026-05-04 (post oi-wake-down)
 
 ## Status legend
 - ✓ Done
