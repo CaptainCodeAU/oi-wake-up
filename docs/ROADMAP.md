@@ -1,6 +1,6 @@
 # Roadmap
 
-Last updated: 2026-06-02 (README re-sleep troubleshooting; UNATTENDSLP preflight candidate)
+Last updated: 2026-06-02 (v1.4.0 — remediate/verify SSH hardening: ConnectTimeout + ServerAlive + cmd timeouts + SIGTERM journal flush)
 
 ## Status legend
 - ✓ Done
@@ -111,6 +111,20 @@ Surfaced during operational use of `oi-wake-verify` against the RTX 3090 box: a 
 
 ---
 
+### v1.4.0 — remediate/verify SSH hardening (2026-06-02)
+
+Surfaced by a sister project (Proxmox CT150 dispatcher) wrapping `oi-wake-verify` to gate GPU access on the 3090 box: the full `--remediate "just restart" --verify "just warmup"` invocation hung for exactly 120s and was `SIGTERM`-killed by the dispatcher's `execFile` cap (surfacing as `code:1`, not an oi-wake-verify exit). A three-agent investigation (oi-wake-up + 3090-side + CT150) traced it to a transient post-wake window where the CT150→mlbox TCP connect never reached sshd; `runRemote` had no `ConnectTimeout`, so it rode OpenSSH's ~120s default. See DECISIONS #20.
+
+- ✓ `runRemote` now carries `ConnectTimeout=10` + `ServerAliveInterval=5`/`ServerAliveCountMax=3` on the remediate/verify channels — opt-in per call, so the probe and `oi-wake-down`'s sleep channel are unchanged
+- ✓ `--remediate-timeout <s>` / `--verify-timeout <s>` — kill a hung command (`SIGKILL`) and fail cleanly with exit 4/5 (`… timed out after Ns`); default `0` = no cap (backward-compatible)
+- ✓ `oi-wake-verify` now traps `SIGTERM` + `SIGHUP` (not just `SIGINT`) — flushes the `--json`/`--journal` record before exit, so a parent timeout no longer leaves an empty journal with no trace of the stalled step (handler mirrored to `oi-wake-down` for parity)
+- ✓ Surface probe stderr at default verbosity on probe failure — completes the Planned candidate below
+- ✓ 125/125 tests (110 existing + 9 new unit + 6 new in `tests/spawn.test.js` [real `spawnSsh`: timeout-kill, maxBuffer, abort] & `tests/signals.test.js` [SIGTERM journal-flush, subprocess]); verified live (ConnectTimeout bounds a black-hole connect to ~10s; SIGTERM writes the journal)
+
+Surfaces modified: `src/verify.js`, `bin/verify.js`, `bin/sleep.js` (SIGTERM/SIGHUP parity), `tests/verify.test.js`, `tests/spawn.test.js` (new), `tests/signals.test.js` (new), plus README + DECISIONS. `src/spawn.js` already supported `timeoutMs` (v1.2.0) — no change needed.
+
+---
+
 ## In progress
 
 *(nothing currently in flight)*
@@ -123,7 +137,7 @@ Surfaced during operational use of `oi-wake-verify` against the RTX 3090 box: a 
 
 These surfaced during v1.1 real-world testing on the 3090. Each is independently shippable; none are required for v1.1's primary use case. Listed in suggested ship order — items with implicit dependencies are noted inline.
 
-- ☐ **Surface probe stderr at default verbosity on probe failure** — *(do this one first)*. Current behavior buries the actual failure reason at `-d`. Host-key errors, connection timeouts, auth failures, and sshd-down each have different fix paths; users shouldn't need debug mode to find out which. General-purpose fix that catches host-key failures *and* anything else weird that surfaces in the future. The SSH-territory agent specifically called this out as their preferred primary fix because it doesn't paper over future failure classes the way an `--accept-new-host` shortcut would.
+- ✓ **Surface probe stderr at default verbosity on probe failure** — *shipped in the 2026-06-02 hardening pass above.* Current behavior buried the actual failure reason at `-d`. Host-key errors, connection timeouts, auth failures, and sshd-down each have different fix paths; users shouldn't need debug mode to find out which. General-purpose fix that catches host-key failures *and* anything else weird that surfaces in the future. The SSH-territory agent specifically called this out as their preferred primary fix because it doesn't paper over future failure classes the way an `--accept-new-host` shortcut would.
 - ☐ **`--capture-verify` flag** — include verify command's stdout in the JSON output regardless of verbosity, so automation can extract proof artifacts (e.g. the `cold_ms=N hot_ms=N threshold_ms=N` line from `just warmup`) without scraping `-d` output. Strongest case of the polish bunch — concrete automation need surfaced multiple times during testing and reinforced by the 3090-side agent's parseable output design.
 - ☐ **`--accept-new-host` convenience flag** — *(ship only after probe stderr is surfaced at default verbosity)*. Wraps `--ssh-opt StrictHostKeyChecking=accept-new`. First-run ergonomic improvement; users currently need the verbose pass-through form. **Don't ship this in isolation** — silently auto-accepting host keys that the user can't see (because probe stderr is still buried at `-d`) would be worse than the current footgun. The two flags work together: surface stderr so users see *why* probe failed, then offer the convenience flag as the explicit fix.
 - ☐ **`--forward-agent` flag** — pass `-A` to spawned ssh invocations for verify or remediate commands that need agent forwarding back to the originating host. Lower priority — no current consumer; worth implementing when one materialises.

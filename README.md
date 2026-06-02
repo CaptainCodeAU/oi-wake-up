@@ -82,6 +82,10 @@ oi-wake-verify mymachine --mac AA:BB:CC:DD:EE:FF --dry-run -v
 
 **On `--max-output <bytes>`**: caps the stdout + stderr captured from `--remediate` and `--verify` commands (default: 1 MiB). Chatty commands get truncated at the limit with a `[output truncated]` marker; they don't balloon memory or flood the journal.
 
+**On `--remediate-timeout <s>` / `--verify-timeout <s>`**: cap how long a `--remediate` or `--verify` command may run before it's killed (`SIGKILL`) and the run fails cleanly with exit 4 / 5 (`… timed out after Ns`). Default `0` = no cap (unchanged behaviour). Set these when a command can genuinely hang — e.g. a remote restart that holds the SSH channel open. Pick a value above the command's legitimate worst case (a cold model load, a slow restart): the cost of being wrong is a spurious exit 4/5 on a healthy host.
+
+**On the SSH command channel**: the `--remediate` and `--verify` connections always carry `ConnectTimeout=10` plus `ServerAliveInterval=5`/`ServerAliveCountMax=3`. This bounds a stalled TCP connect to ~10s (instead of OpenSSH's ~120s default) and detects a silently-dropped channel in ~15s — the failure mode that bites in the fragile window right after a WoL wake, when the target's network stack may not be fully up. A fast failure lets a calling wrapper buffer and retry on its next cycle rather than blocking. (The probe and `oi-wake-down`'s sleep channel are deliberately left as-is.)
+
 Run `oi-wake-verify --help` for the full flag reference.
 
 ### A note on what `--verify` should actually exercise
@@ -106,9 +110,9 @@ If you want **positive direct evidence** on top of latency gating (e.g. "I want 
 | 4    | Remediation command failed |
 | 5    | Verification failed |
 | 64   | Invalid CLI usage (unknown flag, conflicting mode flags) |
-| 130  | Interrupted (SIGINT) |
+| 130  | Interrupted (SIGINT / SIGTERM / SIGHUP) |
 
-These are stable — branch on them from cron, Home Assistant, shell wrappers.
+These are stable — branch on them from cron, Home Assistant, shell wrappers. On any of these signals the `--json` object and `--journal` line are still flushed before exit, so a parent that times the process out (e.g. an `execFile` timeout sending `SIGTERM`) still gets a record naming the step that was in flight.
 
 ### Recommended setup: lean on `~/.ssh/config`
 
@@ -130,7 +134,8 @@ alias wakeup='oi-wake-verify mymachine \
     --mac AA:BB:CC:DD:EE:FF \
     --broadcast 192.168.1.255 \
     --remediate "bash -lc \"cd ~/repos/myproject && just restart\"" \
-    --verify   "bash -lc \"cd /home/youruser/repos/myproject && just warmup\""'
+    --verify   "bash -lc \"cd /home/youruser/repos/myproject && just warmup\"" \
+    --remediate-timeout 60 --verify-timeout 90'
 
 alias wakedown='oi-wake-down mymachine'
 ```
@@ -186,7 +191,9 @@ Run `oi-wake-down --help` for the full flag reference.
 | 6    | Sleep command failed (non-connection-drop error) |
 | 7    | Sleep not confirmed — host still reachable after `--timeout` seconds |
 | 64   | Invalid CLI usage |
-| 130  | Interrupted (SIGINT) |
+| 130  | Interrupted (SIGINT / SIGTERM / SIGHUP) |
+
+On any of these signals the `--json` object and `--journal` line are flushed before exit (parity with `oi-wake-verify`).
 
 ### Install
 

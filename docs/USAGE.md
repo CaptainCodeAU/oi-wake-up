@@ -199,6 +199,21 @@ oi-wake-up --print-packet AA:BB:CC:DD:EE:FF
 
 ---
 
+### 16. Cap a hung remediate or verify
+
+`oi-wake-verify --remediate-timeout` / `--verify-timeout` — SIGKILL the remediate or verify command if it runs past the given number of seconds, failing cleanly with exit 4 / 5 (`… timed out after Ns`) instead of blocking. Off by default (`0`). Useful for unattended runs where a `just restart` could hang or a verify could wedge. Set each cap above the command's legitimate worst case — a slow restart, a cold model load.
+
+```bash
+oi-wake-verify mymachine --mac AA:BB:CC:DD:EE:FF \
+    --remediate "bash -lc 'cd ~/repos/myproject && just restart'" \
+    --verify   "bash -lc 'cd ~/repos/myproject && just warmup'" \
+    --remediate-timeout 60 --verify-timeout 90
+```
+
+The `--remediate`/`--verify` SSH connections also always carry `ConnectTimeout=10` + `ServerAliveInterval=5`/`ServerAliveCountMax=3`, so a stalled connect or a silently-dropped channel fails in ~10–15s rather than riding OpenSSH's ~120s default — the failure mode that bites in the fragile window right after a WoL wake.
+
+---
+
 ## Shell aliases
 
 Define SSH connection details once in `~/.ssh/config`, then the alias only carries the wake/remediate bits:
@@ -229,8 +244,11 @@ alias wakeup='oi-wake-verify mymachine \
     --mac AA:BB:CC:DD:EE:FF \
     --broadcast 192.168.1.255 \
     --remediate "bash -lc '\''cd ~/repos/myproject && just restart'\''" \
-    --verify   "bash -lc '\''cd /home/youruser/repos/myproject && just warmup'\''"'
+    --verify   "bash -lc '\''cd /home/youruser/repos/myproject && just warmup'\''" \
+    --remediate-timeout 60 --verify-timeout 90'
 ```
+
+`--remediate-timeout`/`--verify-timeout` (seconds) are optional safety caps — they SIGKILL a hung remediate/verify and fail cleanly (exit 4/5) rather than blocking forever. Off by default (`0`); set each above its command's legitimate worst case (a slow `docker compose restart`, a cold model load). The remediate/verify SSH connections also always carry `ConnectTimeout=10` + `ServerAliveInterval=5`/`ServerAliveCountMax=3`, so a stalled connect or dropped channel fails in ~10–15s instead of OpenSSH's ~120s default.
 
 Sleep alias — put the machine back down when done:
 
