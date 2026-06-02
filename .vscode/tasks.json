@@ -1,0 +1,30 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Init a random VSCode Project Color",
+      "type": "shell",
+      "command": "~/.config/zshrc/init-vscode-project-settings.sh",
+      "args": [
+        "--random"
+      ],
+      "presentation": {
+        "reveal": "always",
+        "focus": true
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "List Color Profiles",
+      "type": "shell",
+      "command": "~/.config/zshrc/init-vscode-project-settings.sh",
+      "args": [
+        "--list"
+      ],
+      "presentation": {
+        "reveal": "always"
+      },
+      "problemMatcher": []
+    }
+  ]
+}

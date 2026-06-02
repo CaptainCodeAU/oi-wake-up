@@ -1,0 +1,34 @@
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+
+# Test / Coverage
+coverage/
+
+# Environment
+.env
+.env.local
+
+# OS
+.DS_Store
+
+# Editor
+.idea/
+.vscode/
+*.swp
+
+# Project
+.claude/
+Plans/
+
+# Private docs (personal setup context — kept locally only)
+docs/AGENT_BRIEF.md
+docs/DECISIONS.md
+docs/METAPROMPT.md

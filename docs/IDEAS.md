@@ -1,0 +1,41 @@
+# Ideas
+
+Inbox for unstarted ideas. One bullet each, dated. Promote to `ROADMAP.md` when actioned.
+
+- **Auto-detect MAC from ARP cache when host is reachable** (2026-05-01) — when invoking `oi-wake-verify` against a host that's currently up, look up its MAC from the local ARP cache instead of requiring `--mac`. Removes the most-typed flag for already-awake force-restart scenarios. → ROADMAP (parked)
+
+- **Pre/post hook commands beyond `--remediate` and `--verify`** (2026-05-01) — `--before-wake` and `--after-verify` shell hooks for unattended notifications, model preloading, etc. Lets users extend the tool without forking.
+
+- **Notification integration (Pushover / ntfy / Slack)** (2026-05-01) — for unattended wake-and-verify runs (cron, Home Assistant). Better delivered as an `--after-verify` hook (above) than as baked-in integrations. → ROADMAP (parked)
+
+- **Daemon / scheduler-aware retry mode** (2026-05-01) — systemd-timer-aware retry semantics, graceful interaction with cron-job overlap. Probably out of scope for `oi-wake-verify`; could be a separate tool. → ROADMAP (parked)
+
+- **Multi-target orchestration (`--all`)** (2026-05-01) — wake/remediate multiple hosts in one invocation. Becomes valuable only when 3+ machines need this regularly; YAGNI for now. → ROADMAP (parked)
+
+- **Surface probe stderr at default verbosity on probe failure** (2026-05-02, surfaced during oi-wake-verify real-world testing) — current behaviour buries the actual probe failure reason at `-d`. A user running the tool casually sees "unreachable" and assumes "box asleep" — but the actual stderr might be `Host key verification failed`, `Operation timed out`, `Permission denied (publickey)`, etc., each with a different fix path. Surfacing one line of the probe stderr at default verbosity when probe fails would have caught a real diagnostic loop during testing. SSH-territory agent's preferred primary fix because it doesn't paper over future failure classes — ship before any host-key-specific shortcut. → ROADMAP
+
+- **`--capture-verify` flag** (2026-05-02) — include the verify command's stdout in the structured JSON output regardless of verbosity. Today the `cold_ms=N hot_ms=N threshold_ms=N` line from `just warmup` is captured by `runRemote` but only printed at `-d`. Automation that wants to extract proof artifacts has to scrape `-d` output; with this flag, `oi-wake-verify --capture-verify --json | jq '.steps[] | select(.kind=="verify") | .stdout'` becomes a clean one-liner. ~30 LOC change in `bin/verify.js` + ~3 new tests. Strongest case of the polish bunch — and reinforced by the 3090 repo now shipping a second recipe (`just gpu-probe`) that uses the same `key=value` parseable-line discipline, so this flag pays off for any verify recipe that follows that convention. → ROADMAP
+
+- **`--accept-new-host` convenience flag** (2026-05-02) — *(dependency: ship only after `Surface probe stderr at default verbosity` above)*. Wraps `--ssh-opt StrictHostKeyChecking=accept-new` for first-run ergonomics. Today users hit a confusing `Host key verification failed` failure on first invocation against any new alias and have to drop to `-d` to discover it. Don't ship this in isolation — silently auto-accepting host keys the user can't see is worse than the current footgun. Pair with the stderr-surfacing fix. → ROADMAP
+
+- **`--forward-agent` flag** (2026-05-02) — pass `-A` to spawned ssh invocations for verify or remediate commands that need agent forwarding back to the originating host. Doesn't apply to `just warmup` (it's all `localhost:1234` on the box) but would matter if a verify ever grew a `git pull` or similar. → ROADMAP
+
+- **ICMP-pre-probe + SSH-probe two-stage liveness** (2026-05-02) — distinguishes "host asleep / off network" from "host reachable but SSH probe failed (host-key mismatch, auth failure, sshd down)". Today both look like "unreachable" at default verbosity, with very different fix paths. Two-stage probe: ICMP ping the IP first; if it succeeds, run the SSH probe; the result distinguishes which layer failed. Requires `node:net` socket-based ICMP or shelling to `ping` (latter portable, former needs root or capabilities). Largest design surface — write a fresh plan in `Plans/` before implementing. → ROADMAP
+
+- **`--remediate-timeout` / `--verify-timeout`** (2026-05-27) — `spawnSsh` already supports `timeoutMs` but `executePlan` never passes it for remediate/verify steps. A runaway `just restart` or hung verify command blocks forever with no recourse. Adding per-step timeout flags would SIGKILL the child after the deadline. Low effort (~20 LOC in parser + executor), high safety value for unattended runs.
+
+- **Sleep command presets (`--preset linux|macos|windows-wsl`)** (2026-05-27) — `oi-wake-down` defaults to the Windows-via-WSL `rundll32` command; Linux and macOS users must pass `--command 'sudo systemctl suspend'` or `--command 'pmset sleepnow'`. A `--preset` flag maps a single word to the platform-correct command. Small ergonomic win — the README already documents all three variants.
+
+- **SSH ControlMaster connection reuse** (2026-05-27) — `oi-wake-verify` opens 3+ sequential SSH connections (probe, remediate, verify). Injecting `-o ControlMaster=auto -o ControlPath=/tmp/oi-wake-%h-%p` on the first connection and `-o ControlMaster=no` on subsequent ones reuses the TCP+auth handshake. Shaves 1–3s off the remediate path on high-latency links. Medium effort — need to clean up the socket on exit/abort.
+
+- **Probe-only mode (`--status`)** (2026-05-27) — just probe SSH and report reachable/unreachable, no wake, no remediate, no error on unreachable. Lighter than `--no-wake --no-restart` (which aborts with exit 3 when unreachable). Useful for monitoring scripts and Home Assistant sensors that just want a boolean "is the box up".
+
+- **Shared parse helpers (`src/parse.js`)** (2026-05-27) — `verify.js` and `sleep.js` each duplicate `requireValue`, `parsePort`, `parsePositiveInt` (~40 lines). Extracting to a shared module removes the duplication and makes adding new CLIs cheaper. Lowest priority — works fine as-is, pure internal cleanup.
+
+- **`oi-wake-verify` UNATTENDSLP preflight warning** (2026-06-02, surfaced during the re-sleep investigation) — after a successful wake, optionally read the target's Windows "System unattended sleep timeout" (and `powercfg /requests`) over SSH and warn when the host will auto-return-to-sleep in ~N seconds unless a power request is held. Would turn a full forensic investigation (the box silently re-slept ~120s after every unattended WoL wake until `UNATTENDSLP` was set to 0) into a one-line preflight. Windows-only; read-only `powercfg`/registry query; gate behind a flag (e.g. `--check-sleep-policy`) since it adds an SSH round-trip. Note: the tool would only *warn*, not change host power policy — see DECISIONS #19. → ROADMAP
+
+## How to use this file
+
+- Add ideas as one-liners with a date and a sentence of context.
+- When you decide to action an idea, move it to `ROADMAP.md` under "Planned" with more detail. The `IDEAS.md` entry can stay (with a `→ ROADMAP` marker) or be removed — your call.
+- No prioritisation here. This is an inbox, not a queue.
