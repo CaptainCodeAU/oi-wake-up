@@ -9,6 +9,8 @@ import {
 	pollUntilReachable,
 	runRemote,
 	executePlan,
+	VerifyError,
+	EXIT,
 } from '../src/verify.js';
 import { createSpawnFake } from './spawn-fake.js';
 
@@ -192,6 +194,28 @@ describe('parseVerifyArgs', () => {
 	it('--max-output defaults to 1 MiB', () => {
 		const o = parseVerifyArgs(['myhost', '--mac', '00:11:22:33:44:55']);
 		assert.equal(o.maxOutput, 1048576);
+	});
+
+	it('--remediate-timeout / --verify-timeout parse to non-negative ints', () => {
+		const o = parseVerifyArgs([
+			'myhost', '--mac', '00:11:22:33:44:55',
+			'--remediate-timeout', '60', '--verify-timeout', '90',
+		]);
+		assert.equal(o.remediateTimeout, 60);
+		assert.equal(o.verifyTimeout, 90);
+	});
+
+	it('--remediate-timeout / --verify-timeout default to 0 (no cap)', () => {
+		const o = parseVerifyArgs(['myhost', '--mac', '00:11:22:33:44:55']);
+		assert.equal(o.remediateTimeout, 0);
+		assert.equal(o.verifyTimeout, 0);
+	});
+
+	it('rejects negative --remediate-timeout', () => {
+		assert.throws(
+			() => parseVerifyArgs(['myhost', '--mac', '00:11:22:33:44:55', '--remediate-timeout', '-1']),
+			/must be non-negative/,
+		);
 	});
 });
 
@@ -389,6 +413,23 @@ describe('buildSshArgs', () => {
 			'true',
 		]);
 	});
+
+	it('emits ServerAlive options only when requested', () => {
+		const args = buildSshArgs(makeOpts(), {
+			connectTimeout: 10,
+			serverAliveInterval: 5,
+			serverAliveCountMax: 3,
+			remoteCommand: 'just restart',
+		});
+		assert.deepEqual(args, [
+			'-o', 'BatchMode=yes',
+			'-o', 'ConnectTimeout=10',
+			'-o', 'ServerAliveInterval=5',
+			'-o', 'ServerAliveCountMax=3',
+			'myhost',
+			'just restart',
+		]);
+	});
 });
 
 // ---------------------------------------------------------------------------
@@ -498,6 +539,33 @@ describe('runRemote', () => {
 		assert.equal(r.code, 1);
 		assert.equal(r.stderr, 'oops');
 	});
+
+	it('forwards connectTimeout, serverAlive, and timeoutMs when provided', async () => {
+		const fake = createSpawnFake();
+		fake.queue({ code: 0 });
+		await runRemote(minOpts, 'just restart', {
+			spawn: fake.spawn,
+			connectTimeout: 10,
+			serverAliveInterval: 5,
+			serverAliveCountMax: 3,
+			timeoutMs: 60000,
+		});
+		const { args, opts } = fake.calls[0];
+		assert.ok(args.includes('ConnectTimeout=10'));
+		assert.ok(args.includes('ServerAliveInterval=5'));
+		assert.ok(args.includes('ServerAliveCountMax=3'));
+		assert.equal(opts.timeoutMs, 60000);
+	});
+
+	it('omits hardening args when not provided (oi-wake-down compatibility)', async () => {
+		const fake = createSpawnFake();
+		fake.queue({ code: 0 });
+		await runRemote(minOpts, 'just restart', { spawn: fake.spawn });
+		const { args, opts } = fake.calls[0];
+		assert.ok(!args.some((a) => a.startsWith('ConnectTimeout')));
+		assert.ok(!args.some((a) => a.startsWith('ServerAlive')));
+		assert.equal(opts.timeoutMs, undefined);
+	});
 });
 
 // ---------------------------------------------------------------------------
@@ -568,5 +636,60 @@ describe('executePlan', () => {
 
 		assert.equal(wakeCount, 2, 'wake step + one retry = 2 total sends');
 		assert.equal(journal.steps.find((s) => s.kind === 'wait')?.ok, true);
+	});
+
+	it('remediate timeout-kill → REMEDIATION_FAILED with "timed out"', async () => {
+		const fake = createSpawnFake();
+		fake.queue({ killed: true, code: 255, signal: 'SIGKILL' }); // remediate SIGKILLed by timeoutMs
+		const opts = makeOpts({ remediate: 'just restart', verifyCmd: 'just warmup', grace: 0, remediateTimeout: 5 });
+		const plan = decideAction('reachable', { force: true }); // [remediate, grace, verify]
+		const journal = { host: opts.host, state: 'reachable', steps: [], exit: 0, durationMs: 0 };
+		const log = createLogger('quiet', false, { stdout: () => {}, stderr: () => {} });
+		const ctrl = new AbortController();
+		await assert.rejects(
+			executePlan(plan, opts, { log, journal, total: plan.length + 1, ctrl }, {
+				spawn: fake.spawn, sleep: () => Promise.resolve(),
+			}),
+			(e) => e instanceof VerifyError && e.exitCode === EXIT.REMEDIATION_FAILED && /timed out after 5s/.test(e.message),
+		);
+		// verify must NOT have run — remediate aborted the plan
+		assert.equal(fake.calls.length, 1);
+	});
+
+	it('verify timeout-kill → VERIFY_FAILED with "timed out"', async () => {
+		const fake = createSpawnFake();
+		fake.queue({ code: 0, stdout: 'restarted' });               // remediate ok
+		fake.queue({ killed: true, code: 255, signal: 'SIGKILL' }); // verify SIGKILLed by timeoutMs
+		const opts = makeOpts({ remediate: 'just restart', verifyCmd: 'just warmup', grace: 0, verifyTimeout: 90 });
+		const plan = decideAction('reachable', { force: true });
+		const journal = { host: opts.host, state: 'reachable', steps: [], exit: 0, durationMs: 0 };
+		const log = createLogger('quiet', false, { stdout: () => {}, stderr: () => {} });
+		const ctrl = new AbortController();
+		await assert.rejects(
+			executePlan(plan, opts, { log, journal, total: plan.length + 1, ctrl }, {
+				spawn: fake.spawn, sleep: () => Promise.resolve(),
+			}),
+			(e) => e instanceof VerifyError && e.exitCode === EXIT.VERIFY_FAILED && /timed out after 90s/.test(e.message),
+		);
+	});
+
+	it('remediate/verify SSH carries ConnectTimeout + ServerAlive hardening', async () => {
+		const fake = createSpawnFake();
+		fake.queue({ code: 0, stdout: 'restarted' }); // remediate
+		fake.queue({ code: 0, stdout: 'healthy' });   // verify
+		const opts = makeOpts({ remediate: 'just restart', verifyCmd: 'just warmup', grace: 0 });
+		const plan = decideAction('reachable', { force: true });
+		const journal = { host: opts.host, state: 'reachable', steps: [], exit: 0, durationMs: 0 };
+		const log = createLogger('quiet', false, { stdout: () => {}, stderr: () => {} });
+		const ctrl = new AbortController();
+		await executePlan(plan, opts, { log, journal, total: plan.length + 1, ctrl }, {
+			spawn: fake.spawn, sleep: () => Promise.resolve(),
+		});
+		assert.equal(fake.calls.length, 2);
+		for (const call of fake.calls) {
+			assert.ok(call.args.includes('ConnectTimeout=10'), 'ConnectTimeout present');
+			assert.ok(call.args.includes('ServerAliveInterval=5'), 'ServerAliveInterval present');
+			assert.ok(call.args.includes('ServerAliveCountMax=3'), 'ServerAliveCountMax present');
+		}
 	});
 });

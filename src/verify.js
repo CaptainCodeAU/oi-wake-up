@@ -17,6 +17,16 @@ const MODE_FLAG_DISPLAY = {
 
 const LEVELS = { quiet: 0, default: 1, verbose: 2, debug: 3 };
 
+// SSH hardening defaults for the remediate/verify command channels (NOT the
+// probe, and NOT oi-wake-down's sleep channel — those are deliberately left
+// alone). Without ConnectTimeout, a stalled TCP connect rides OpenSSH's
+// default (~the kernel SYN budget, ~120s) and an external caller's timeout is
+// the only thing that stops it. ServerAlive catches a channel that goes silent
+// mid-command (e.g. a half-open connection after a flaky post-wake window).
+const REMOTE_CONNECT_TIMEOUT_S = 10; // fast-fail a stalled connect -> caller can buffer + retry
+const SERVER_ALIVE_INTERVAL_S = 5; // probe a quiet channel every 5s...
+const SERVER_ALIVE_COUNT_MAX = 3; // ...give up after 3 misses (~15s)
+
 /**
  * Read this package's version from package.json next to the repo root.
  * @returns {string}
@@ -54,6 +64,8 @@ SSH parameters:
 Remediation:
   -r, --remediate <cmd>     Command to run on host after wake
   -V, --verify <cmd>        Optional post-remediation health check (exit 0 = ok)
+      --remediate-timeout <s>  Kill --remediate if it runs longer than <s> (0 = no cap, default)
+      --verify-timeout <s>     Kill --verify if it runs longer than <s> (0 = no cap, default)
   -g, --grace <seconds>     Wait after SSH up before remediation (default: 10)
 
 Mode flags (mutually exclusive):
@@ -97,6 +109,8 @@ Note: -d here means debug. The sibling tool (oi-wake-up) uses -d for delay.`;
  * @property {string[]} sshOpts
  * @property {string|null} remediate
  * @property {string|null} verifyCmd
+ * @property {number} remediateTimeout
+ * @property {number} verifyTimeout
  * @property {number} grace
  * @property {boolean} force
  * @property {boolean} wakeOnly
@@ -135,6 +149,8 @@ export function parseVerifyArgs(argv) {
 		sshOpts: [],
 		remediate: null,
 		verifyCmd: null,
+		remediateTimeout: 0,
+		verifyTimeout: 0,
 		grace: 10,
 		force: false,
 		wakeOnly: false,
@@ -199,6 +215,12 @@ export function parseVerifyArgs(argv) {
 			case '-V':
 			case '--verify':
 				opts.verifyCmd = requireValue(argv, ++i, arg);
+				break;
+			case '--remediate-timeout':
+				opts.remediateTimeout = parseNonNegativeInt(requireValue(argv, ++i, arg), arg);
+				break;
+			case '--verify-timeout':
+				opts.verifyTimeout = parseNonNegativeInt(requireValue(argv, ++i, arg), arg);
 				break;
 			case '-g':
 			case '--grace':
@@ -444,7 +466,7 @@ export function createLogger(level, json, streams = {}) {
  * Pure — returned for both real spawning and assertions in tests.
  *
  * @param {VerifyOptions} opts
- * @param {{ batchMode?: boolean, connectTimeout?: number, remoteCommand?: string|null }} [extra]
+ * @param {{ batchMode?: boolean, connectTimeout?: number, serverAliveInterval?: number, serverAliveCountMax?: number, remoteCommand?: string|null }} [extra]
  * @returns {string[]}
  */
 export function buildSshArgs(opts, extra = {}) {
@@ -455,6 +477,12 @@ export function buildSshArgs(opts, extra = {}) {
 	}
 	if (typeof extra.connectTimeout === 'number') {
 		args.push('-o', `ConnectTimeout=${extra.connectTimeout}`);
+	}
+	if (typeof extra.serverAliveInterval === 'number') {
+		args.push('-o', `ServerAliveInterval=${extra.serverAliveInterval}`);
+	}
+	if (typeof extra.serverAliveCountMax === 'number') {
+		args.push('-o', `ServerAliveCountMax=${extra.serverAliveCountMax}`);
 	}
 
 	if (opts.identity) {
@@ -539,18 +567,25 @@ export async function pollUntilReachable(opts, onProgress, deps = {}) {
 /**
  * Run a remote command via SSH and capture both streams.
  *
+ * Hardening (connectTimeout, serverAlive, timeoutMs) is opt-in per call so the
+ * probe and oi-wake-down's sleep channel keep their existing behaviour — only
+ * oi-wake-verify's remediate/verify steps pass them.
+ *
  * @param {VerifyOptions} opts
  * @param {string} command
- * @param {{spawn?: typeof spawnSsh, signal?: AbortSignal, maxBuffer?: number}} [deps]
- * @returns {Promise<{code: number, stdout: string, stderr: string, durationMs: number}>}
+ * @param {{spawn?: typeof spawnSsh, signal?: AbortSignal, maxBuffer?: number, timeoutMs?: number, connectTimeout?: number, serverAliveInterval?: number, serverAliveCountMax?: number}} [deps]
+ * @returns {Promise<{code: number, stdout: string, stderr: string, durationMs: number, killed: boolean, signal: string|null}>}
  */
 export async function runRemote(opts, command, deps = {}) {
 	const spawnFn = deps.spawn ?? spawnSsh;
 	const args = buildSshArgs(opts, {
 		batchMode: true,
+		connectTimeout: deps.connectTimeout,
+		serverAliveInterval: deps.serverAliveInterval,
+		serverAliveCountMax: deps.serverAliveCountMax,
 		remoteCommand: command,
 	});
-	return spawnFn(args, { signal: deps.signal, maxBuffer: deps.maxBuffer });
+	return spawnFn(args, { signal: deps.signal, maxBuffer: deps.maxBuffer, timeoutMs: deps.timeoutMs });
 }
 
 /**
@@ -698,9 +733,24 @@ export async function executePlan(plan, opts, ctx, deps = {}) {
 				}
 				log.step(stepNum, total, `Running remediation: ${opts.remediate}`);
 				{
-					const r = await runRemote(opts, opts.remediate, { signal: ctrl.signal, spawn: deps.spawn, maxBuffer: opts.maxOutput });
+					const timeoutMs = opts.remediateTimeout > 0 ? opts.remediateTimeout * 1000 : undefined;
+					const r = await runRemote(opts, opts.remediate, {
+						signal: ctrl.signal,
+						spawn: deps.spawn,
+						maxBuffer: opts.maxOutput,
+						timeoutMs,
+						connectTimeout: REMOTE_CONNECT_TIMEOUT_S,
+						serverAliveInterval: SERVER_ALIVE_INTERVAL_S,
+						serverAliveCountMax: SERVER_ALIVE_COUNT_MAX,
+					});
 					log.debug(`remediate: code=${r.code} stdout=${r.stdout.trim()} stderr=${r.stderr.trim()}`);
-					journal.steps.push({ kind: 'remediate', code: r.code, durationMs: r.durationMs });
+					journal.steps.push({ kind: 'remediate', code: r.code, durationMs: r.durationMs, killed: r.killed });
+					if (timeoutMs && r.killed) {
+						throw new VerifyError(
+							EXIT.REMEDIATION_FAILED,
+							`remediation timed out after ${opts.remediateTimeout}s`,
+						);
+					}
 					if (r.code !== 0) {
 						throw new VerifyError(
 							EXIT.REMEDIATION_FAILED,
@@ -717,9 +767,24 @@ export async function executePlan(plan, opts, ctx, deps = {}) {
 				}
 				log.step(stepNum, total, `Verifying: ${opts.verifyCmd}`);
 				{
-					const r = await runRemote(opts, opts.verifyCmd, { signal: ctrl.signal, spawn: deps.spawn, maxBuffer: opts.maxOutput });
+					const timeoutMs = opts.verifyTimeout > 0 ? opts.verifyTimeout * 1000 : undefined;
+					const r = await runRemote(opts, opts.verifyCmd, {
+						signal: ctrl.signal,
+						spawn: deps.spawn,
+						maxBuffer: opts.maxOutput,
+						timeoutMs,
+						connectTimeout: REMOTE_CONNECT_TIMEOUT_S,
+						serverAliveInterval: SERVER_ALIVE_INTERVAL_S,
+						serverAliveCountMax: SERVER_ALIVE_COUNT_MAX,
+					});
 					log.debug(`verify: code=${r.code} stdout=${r.stdout.trim()} stderr=${r.stderr.trim()}`);
-					journal.steps.push({ kind: 'verify', code: r.code, durationMs: r.durationMs });
+					journal.steps.push({ kind: 'verify', code: r.code, durationMs: r.durationMs, killed: r.killed });
+					if (timeoutMs && r.killed) {
+						throw new VerifyError(
+							EXIT.VERIFY_FAILED,
+							`verification timed out after ${opts.verifyTimeout}s`,
+						);
+					}
 					if (r.code !== 0) {
 						throw new VerifyError(
 							EXIT.VERIFY_FAILED,
