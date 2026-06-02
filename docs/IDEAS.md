@@ -36,6 +36,8 @@ Inbox for unstarted ideas. One bullet each, dated. Promote to `ROADMAP.md` when 
 
 - **`--verify-first` mode for `oi-wake-verify`** (2026-06-02, surfaced during the three-agent connect-stall investigation) — today `--force` *always* remediates before verifying, and the default reachable path no-ops; neither covers "host is up but the GPU/service is silently dead" without unconditionally restarting. A `--verify-first` mode would run `--verify` first and only run `--remediate` (then re-verify) when it fails — directly serving the broken-CUDA case while avoiding a needless restart (and, for llmster, the fixed 30s SIGTERM-ignore restart cost) on an already-healthy host. The cleaner alternative to a dispatcher forcing a restart on every gate call.
 
+- **`-F` / `--ssh-config <path>` pass-through flag** (2026-06-02, surfaced by the CT150 ProtectHome incident) — let `oi-wake-verify` take an explicit ssh config file (forwarded to `ssh -F <path>`) for contexts where `~/.ssh/config` isn't readable: systemd units with `ProtectHome=true`, cron, containers. The CT150 dispatcher hit exactly this — ProtectHome hid `~/.ssh/config`, so `oi-wake-verify mlbox-ubuntu` couldn't resolve the alias and fell back to `--ssh-port 22` (the wrong sshd), failing every wake until the connection was passed explicitly. **Low priority / ergonomic only:** the workaround (decompose into `<IP> --ssh-port 2522 -i <key> --ssh-opt User=… --ssh-opt UserKnownHostsFile=…`) works today; `-F /path/config` would just collapse ~6 flags into one. ~10 LOC in `buildSshArgs` (push `-F <path>` ahead of `BatchMode`).
+
 ## How to use this file
 
 - Add ideas as one-liners with a date and a sentence of context.
