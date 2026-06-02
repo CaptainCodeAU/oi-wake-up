@@ -50,15 +50,21 @@ async function main() {
 		}
 	};
 
-	const onSigint = () => {
+	// Flush the journal on a signal-kill too (parity with oi-wake-verify). A
+	// parent that times us out (cron wrapper, systemd) sends SIGTERM; with no
+	// handler Node terminates silently and the --json/--journal record is never
+	// written. Treat SIGTERM/SIGHUP like SIGINT so the journal still survives.
+	const onSignal = (sig) => {
 		ctrl.abort();
-		log.error('interrupted');
+		log.error(`interrupted (${sig})`);
 		journal.exit = EXIT.INTERRUPTED;
 		journal.durationMs = Date.now() - startedAt;
 		flushJournal();
 		process.exit(EXIT.INTERRUPTED);
 	};
-	process.on('SIGINT', onSigint);
+	process.on('SIGINT', onSignal);
+	process.on('SIGTERM', onSignal);
+	process.on('SIGHUP', onSignal);
 
 	try {
 		// Dry-run: don't probe, just print both plans.
@@ -101,7 +107,9 @@ async function main() {
 		flushJournal();
 		process.exit(code);
 	} finally {
-		process.off('SIGINT', onSigint);
+		process.off('SIGINT', onSignal);
+		process.off('SIGTERM', onSignal);
+		process.off('SIGHUP', onSignal);
 	}
 }
 
