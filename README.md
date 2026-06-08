@@ -562,11 +562,13 @@ This is **documentation, not a shipped binary** — an always-on recorder is a d
    Add-Content -Path (Join-Path $dir 'external-wakes.jsonl') -Value ($record | ConvertTo-Json -Compress -Depth 5)
    ```
 
+   The recorder's `ts` is the script's **run time**, not a `powercfg` field (`/lastwake` carries no timestamp). Because the task fires on the Event ID 1 *resume*, run time is within a second or two of the actual wake — fine for timestamp-window correlation. For an exact wake time, read the triggering Event ID 1 instead.
+
 2. **Register the trigger** (elevated PowerShell) — fire on Power-Troubleshooter Event ID 1:
 
    ```powershell
    $action  = New-ScheduledTaskAction -Execute 'powershell.exe' `
-       -Argument '-NonInteractive -ExecutionPolicy Bypass -File "C:\ProgramData\oi-wake\record-wake.ps1"'
+       -Argument '-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "C:\ProgramData\oi-wake\record-wake.ps1"'
    $trigger = New-ScheduledTaskTrigger -AtStartup       # placeholder; replaced by the event subscription below
    Register-ScheduledTask -TaskName 'oi-wake external recorder' -Action $action -Trigger $trigger `
        -User 'SYSTEM' -RunLevel Highest -Force
@@ -579,6 +581,8 @@ This is **documentation, not a shipped binary** — an always-on recorder is a d
    $task.Triggers = @($evt)
    Set-ScheduledTask -TaskName 'oi-wake external recorder' -Trigger $task.Triggers
    ```
+
+   **Installing remotely over SSH (WSL).** If you script the steps above over a non-interactive WSL SSH session, run each `powershell.exe` call as the *last / standalone* command in its SSH invocation, and keep `-NoProfile`: WSL→Windows interop can disturb the shared stdout stream when a `powershell.exe` call is chained mid-pipe (`powershell.exe … && <more bash>`), truncating the bash output that follows. Smoke-test the recorder the same way — `powershell.exe -NoProfile -ExecutionPolicy Bypass -File 'C:\ProgramData\oi-wake\record-wake.ps1'` — then check `external-wakes.jsonl`.
 
 3. **Read it from WSL / your dispatcher** — the log is at `/mnt/c/ProgramData/oi-wake/external-wakes.jsonl`. Because each line mirrors the `oi-wake-verify` journal (`ts` + `wakeSource`), a consumer can simply concatenate both streams and sort by `ts` to get one durable wake history that distinguishes "we woke it" (a record from `oi-wake-verify --capture-wake-source`) from "something else woke it" (a record from this recorder with no matching tool run).
 
