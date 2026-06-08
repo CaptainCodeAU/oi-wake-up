@@ -1,6 +1,6 @@
 # Roadmap
 
-Last updated: 2026-06-02 (v1.4.0 — remediate/verify SSH hardening: ConnectTimeout + ServerAlive + cmd timeouts + SIGTERM journal flush)
+Last updated: 2026-06-08 (v1.5.0 — wake observability & attribution: ts/finishedAt, --capture-wake-source, --capture-verify, --status, -F/--ssh-config)
 
 ## Status legend
 - ✓ Done
@@ -133,11 +133,13 @@ Requested by the same sister project (Proxmox CT150 dispatcher) that drove v1.4.
 - ✓ **`--capture-wake-source`** — opt-in, read-only `powercfg /lastwake` over the post-wake SSH channel → top-level `wakeSource` object (Windows wake-source attribution); `performedWake`-gated, never fatal, never mutates power policy (Decision #19)
 - ✓ **`--capture-verify`** — include `--remediate`/`--verify` `stdout`/`stderr` in their `steps[]` records regardless of verbosity
 - ✓ **`--status`** — probe-only liveness mode (exit 0 on reachable AND unreachable; no wake/remediate)
-- ✓ **`-F` / `--ssh-config <path>`** — forward `ssh -F <path>` for `ProtectHome`/cron contexts where `~/.ssh/config` is unreadable (retires the CT150 6-flag workaround)
+- ✓ **`-F` / `--ssh-config <path>`** — forward `ssh -F <path>` for `ProtectHome`/cron contexts where `~/.ssh/config` is unreadable (retires the CT150 6-flag workaround); on **both** `oi-wake-verify` and `oi-wake-down`
 - ✓ **README external-wake recorder recipe** — documents recording wakes `oi-wake-verify` never sees (external magic packets, `WakeOnPattern`, HID, timers) via a Windows Task Scheduler job; docs-only (daemon stays out of scope)
-- ✓ 150/150 tests (125 existing + 25 new). Parser pinned to a real mlbox `/lastwake` sample; the 3 live cold/noop/failure runs deferred to supervised receptionist integration from CT150
+- ✓ 151/151 tests (125 existing + 26 new). Parser pinned to a real mlbox `/lastwake` sample; the 3 live cold/noop/failure runs deferred to supervised receptionist integration from CT150
 
-Surfaces: `src/verify.js`, `bin/verify.js`, `bin/sleep.js`, `tests/verify.test.js`, `tests/signals.test.js`, `tests/observability.test.js` (new), plus README + USAGE + GLOSSARY + AGENT_BRIEF + DECISIONS. Plan: `Plans/oi-wake-up-wake-clever-tarjan.md`.
+**Released:** merged to `master` via [PR #3](https://github.com/CaptainCodeAU/oi-wake-up/pull/3) (merge commit `7ab29c8`), tagged `v1.5.0`.
+
+Surfaces: `src/verify.js`, `bin/verify.js`, `src/sleep.js`, `bin/sleep.js`, `tests/verify.test.js`, `tests/sleep.test.js`, `tests/signals.test.js`, `tests/observability.test.js` (new), plus README + USAGE + GLOSSARY + AGENT_BRIEF + DECISIONS. Plan: `Plans/oi-wake-up-wake-clever-tarjan.md`.
 
 ---
 

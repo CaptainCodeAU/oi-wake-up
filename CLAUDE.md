@@ -25,14 +25,19 @@ oi-wake-up/
 │   ├── verify.js         # oi-wake-verify — wake + ssh probe + remediation
 │   └── sleep.js          # oi-wake-down — remote sleep via SSH
 ├── tests/
-│   ├── index.test.js     # Tests for src/index.js
-│   ├── verify.test.js    # Tests for src/verify.js (parse, decide, logger, orchestrator, executePlan)
-│   ├── sleep.test.js     # Tests for src/sleep.js (parse, decide, executor, connection-drop handling)
-│   ├── spawn-fake.js     # Recording fake for spawnSsh — used by verify.test.js and sleep.test.js
-│   └── dgram-fake.js     # Recording fake for dgram socket factory — used by index.test.js
+│   ├── index.test.js         # Tests for src/index.js (wake, wakeMany, parseMAC)
+│   ├── verify.test.js        # src/verify.js (parse, decideAction, logger, executePlan, parseWakeSource)
+│   ├── sleep.test.js         # src/sleep.js (parse, decide, executor, connection-drop, -F)
+│   ├── spawn.test.js         # real spawnSsh (timeout/kill, maxBuffer, abort)
+│   ├── signals.test.js       # SIGTERM/SIGHUP journal flush + ts/finishedAt (subprocess)
+│   ├── observability.test.js # ts/finishedAt, --status, wake-only marker (subprocess)
+│   ├── spawn-fake.js         # Recording fake for spawnSsh — used by verify.test.js / sleep.test.js
+│   └── dgram-fake.js         # Recording fake for dgram socket factory — used by index.test.js
 ├── docs/
 │   ├── ROADMAP.md        # Done / in-progress / planned / parked
 │   ├── DECISIONS.md      # Append-only design-decisions log
+│   ├── USAGE.md          # Worked examples for all three binaries
+│   ├── AGENT_BRIEF.md    # Self-contained agent/automation connection brief
 │   ├── METAPROMPT.md     # Saved opening prompts for fresh sessions
 │   ├── IDEAS.md          # Parking lot for unstarted ideas
 │   └── GLOSSARY.md       # WoL terminology lookup

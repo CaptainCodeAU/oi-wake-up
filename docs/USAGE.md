@@ -147,7 +147,7 @@ oi-wake-verify mymachine --mac AA:BB:CC:DD:EE:FF \
     --json | jq .exit
 ```
 
-Exit codes are a stable contract — branch on them from cron, Home Assistant, or shell wrappers. See [README § Exit codes](../README.md#exit-codes-stable-contract).
+Every record carries top-level `ts` (run start) and `finishedAt` (run end) as ISO-8601 UTC — use them to order and correlate runs (also present on `oi-wake-down`, and on the signal-kill flush). Add `--capture-wake-source` to also get a top-level `wakeSource` object (see example 17), and `--capture-verify` to fold each step's `stdout`/`stderr` into the record (example 18). Exit codes are a stable contract — branch on them from cron, Home Assistant, or shell wrappers. See [README § Exit codes](../README.md#exit-codes-stable-contract).
 
 ---
 
@@ -252,7 +252,7 @@ oi-wake-verify mymachine --status --json | jq -r '.state'   # -> reachable | unr
 
 ### 20. Explicit ssh config file (`-F` / `--ssh-config`)
 
-`oi-wake-verify -F <path>` — forward an explicit ssh config to `ssh -F <path>`, for contexts where `~/.ssh/config` isn't readable: systemd units with `ProtectHome=true`, cron, containers. Collapses the manual decomposition (`--ssh-port`, `-i`, `--ssh-opt User=…`, `--ssh-opt UserKnownHostsFile=…`) back into a single config file. Applies to the probe, remediate, verify, and wake-source channels.
+`oi-wake-verify -F <path>` — forward an explicit ssh config to `ssh -F <path>`, for contexts where `~/.ssh/config` isn't readable: systemd units with `ProtectHome=true`, cron, containers. Collapses the manual decomposition (`--ssh-port`, `-i`, `--ssh-opt User=…`, `--ssh-opt UserKnownHostsFile=…`) back into a single config file. Applies to the probe, remediate, verify, and wake-source channels. `oi-wake-down` accepts the same `-F`/`--ssh-config` for callers that drive both the wake and sleep sides.
 
 ```bash
 oi-wake-verify mymachine --mac AA:BB:CC:DD:EE:FF -F /etc/oi-wake/ssh_config \
@@ -310,6 +310,7 @@ See [README § Recommended setup](../README.md#recommended-setup-lean-on-sshconf
 ## See also
 
 - [README](../README.md) — full flag reference, prerequisites, troubleshooting tables
-- [docs/GLOSSARY.md](GLOSSARY.md) — WoL terminology (`--grace`, magic packet, sync stream, `BatchMode`, host key entry, etc.)
+- [docs/GLOSSARY.md](GLOSSARY.md) — WoL terminology (`--grace`, magic packet, sync stream, `BatchMode`, host key entry, wake source, etc.)
+- [docs/AGENT_BRIEF.md](AGENT_BRIEF.md) — self-contained connection brief for an LLM agent / automation (flag tables, `--json` schema incl. `wakeSource`, gotchas)
 - [docs/DECISIONS.md](DECISIONS.md) — design rationale (e.g. why `--grace` runs twice on the asleep path, why `--user` doesn't auto-default to `$USER`)
 - [docs/ROADMAP.md](ROADMAP.md) — what's shipped and what's planned

@@ -190,6 +190,8 @@ See [docs/GLOSSARY.md](docs/GLOSSARY.md) for the S3 vs. S4 distinction.
 
 **Connection-drop handling:** when the host sleeps before `rundll32` returns, SSH reports exit 255 with a "connection closed" or "broken pipe" message. `oi-wake-down` treats this as successful delivery and continues to the confirm-asleep poll — it is not treated as a failure.
 
+**On `-F` / `--ssh-config <path>`** (v1.5.0): like `oi-wake-verify`, `oi-wake-down` accepts an explicit ssh config (`ssh -F <path>`) for `ProtectHome`/cron/container contexts where `~/.ssh/config` is unreadable — useful when one caller drives both the wake and sleep sides. Every `--json`/`--journal` record also carries the same `ts` + `finishedAt` timestamps as `oi-wake-verify`.
+
 Run `oi-wake-down --help` for the full flag reference.
 
 ### Exit codes (stable contract)
