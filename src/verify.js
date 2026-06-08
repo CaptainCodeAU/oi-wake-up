@@ -6,13 +6,14 @@ import { spawnSsh } from './spawn.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-const MODE_FLAGS = ['force', 'wakeOnly', 'noRestart', 'noWake', 'dryRun'];
+const MODE_FLAGS = ['force', 'wakeOnly', 'noRestart', 'noWake', 'dryRun', 'status'];
 const MODE_FLAG_DISPLAY = {
 	force: '--force',
 	wakeOnly: '--wake-only',
 	noRestart: '--no-restart',
 	noWake: '--no-wake',
 	dryRun: '--dry-run',
+	status: '--status',
 };
 
 const LEVELS = { quiet: 0, default: 1, verbose: 2, debug: 3 };
@@ -26,6 +27,13 @@ const LEVELS = { quiet: 0, default: 1, verbose: 2, debug: 3 };
 const REMOTE_CONNECT_TIMEOUT_S = 10; // fast-fail a stalled connect -> caller can buffer + retry
 const SERVER_ALIVE_INTERVAL_S = 5; // probe a quiet channel every 5s...
 const SERVER_ALIVE_COUNT_MAX = 3; // ...give up after 3 misses (~15s)
+
+// Read-only wake-source query for --capture-wake-source. Full interop path
+// (like oi-wake-down's rundll32) because SSH lands in WSL bash where bare
+// `powercfg` is not on PATH. /lastwake is read-only — never mutates power
+// policy (Decision #19). Windows/WSL-only; on any other target the command
+// fails and the capture is recorded as not-captured (never fatal).
+const DEFAULT_WAKE_SOURCE_CMD = '/mnt/c/Windows/System32/powercfg.exe /lastwake';
 
 /**
  * Read this package's version from package.json next to the repo root.
@@ -60,6 +68,8 @@ SSH parameters:
   -i, --identity <path>     SSH identity file (default: ssh's default)
       --ssh-opt <opt>       Pass-through SSH option, repeatable
                             (e.g. --ssh-opt StrictHostKeyChecking=accept-new)
+  -F, --ssh-config <path>   Pass an explicit ssh config file (ssh -F <path>);
+                            for contexts where ~/.ssh/config is unreadable
 
 Remediation:
   -r, --remediate <cmd>     Command to run on host after wake
@@ -67,12 +77,15 @@ Remediation:
       --remediate-timeout <s>  Kill --remediate if it runs longer than <s> (0 = no cap, default)
       --verify-timeout <s>     Kill --verify if it runs longer than <s> (0 = no cap, default)
   -g, --grace <seconds>     Wait after SSH up before remediation (default: 10)
+      --capture-verify      Include --remediate/--verify stdout+stderr in --json/--journal records
 
 Mode flags (mutually exclusive):
   -f, --force               Run remediation even if already awake
       --wake-only           Send magic packet only; skip SSH & remediation
       --no-restart          Wake & wait for SSH; skip remediation
       --no-wake             Skip wake; just probe + remediate
+      --status              Probe SSH and report reachable/unreachable; no
+                            wake/remediate; exit 0 even when unreachable
   -n, --dry-run             Print planned actions; perform none
 
 Polling:
@@ -90,6 +103,8 @@ Output:
   -d, --debug               Full SSH transcripts and resolved options
       --json                Structured JSON to stdout (overrides verbosity)
       --journal <path>      Append JSON journal entry to file (JSONL; one object per line)
+      --capture-wake-source After a wake, capture read-only powercfg /lastwake
+                            into the journal's wakeSource field (Windows/WSL)
 
 Standard:
   -h, --help                Show this help
@@ -107,20 +122,24 @@ Note: -d here means debug. The sibling tool (oi-wake-up) uses -d for delay.`;
  * @property {number} sshPort
  * @property {string|null} identity
  * @property {string[]} sshOpts
+ * @property {string|null} sshConfig
  * @property {string|null} remediate
  * @property {string|null} verifyCmd
  * @property {number} remediateTimeout
  * @property {number} verifyTimeout
  * @property {number} grace
+ * @property {boolean} captureVerify
  * @property {boolean} force
  * @property {boolean} wakeOnly
  * @property {boolean} noRestart
  * @property {boolean} noWake
  * @property {boolean} dryRun
+ * @property {boolean} status
  * @property {number} timeout
  * @property {number} poll
  * @property {number} probeTimeout
  * @property {number} maxOutput
+ * @property {boolean} captureWakeSource
  * @property {number} retryWake
  * @property {'quiet'|'default'|'verbose'|'debug'} level
  * @property {boolean} json
@@ -147,20 +166,24 @@ export function parseVerifyArgs(argv) {
 		sshPort: 22,
 		identity: null,
 		sshOpts: [],
+		sshConfig: null,
 		remediate: null,
 		verifyCmd: null,
 		remediateTimeout: 0,
 		verifyTimeout: 0,
 		grace: 10,
+		captureVerify: false,
 		force: false,
 		wakeOnly: false,
 		noRestart: false,
 		noWake: false,
 		dryRun: false,
+		status: false,
 		timeout: 180,
 		poll: 3,
 		probeTimeout: 2,
 		maxOutput: 1048576,
+		captureWakeSource: false,
 		retryWake: 0,
 		level: 'default',
 		json: false,
@@ -208,6 +231,10 @@ export function parseVerifyArgs(argv) {
 			case '--ssh-opt':
 				opts.sshOpts.push(requireValue(argv, ++i, arg));
 				break;
+			case '-F':
+			case '--ssh-config':
+				opts.sshConfig = requireValue(argv, ++i, arg);
+				break;
 			case '-r':
 			case '--remediate':
 				opts.remediate = requireValue(argv, ++i, arg);
@@ -226,6 +253,12 @@ export function parseVerifyArgs(argv) {
 			case '--grace':
 				opts.grace = parseNonNegativeInt(requireValue(argv, ++i, arg), arg);
 				break;
+			case '--capture-verify':
+				opts.captureVerify = true;
+				break;
+			case '--capture-wake-source':
+				opts.captureWakeSource = true;
+				break;
 			case '-f':
 			case '--force':
 				opts.force = true;
@@ -238,6 +271,9 @@ export function parseVerifyArgs(argv) {
 				break;
 			case '--no-wake':
 				opts.noWake = true;
+				break;
+			case '--status':
+				opts.status = true;
 				break;
 			case '-n':
 			case '--dry-run':
@@ -299,8 +335,8 @@ export function parseVerifyArgs(argv) {
 		throw new Error(`Conflicting mode flags: ${names} are mutually exclusive`);
 	}
 
-	if (!opts.noWake && !opts.mac) {
-		throw new Error('Missing required option: --mac (omit only with --no-wake)');
+	if (!opts.noWake && !opts.status && !opts.mac) {
+		throw new Error('Missing required option: --mac (omit only with --no-wake / --status)');
 	}
 
 	if (opts.mac && !isValidMAC(opts.mac)) {
@@ -475,6 +511,12 @@ export function buildSshArgs(opts, extra = {}) {
 	if (extra.batchMode !== false) {
 		args.push('-o', 'BatchMode=yes');
 	}
+	// An explicit -F config must precede the target so ssh applies it when
+	// resolving the host alias (the ProtectHome/cron case where ~/.ssh/config
+	// is unreadable). Applies to probe, remediate, verify, and wake-source.
+	if (opts.sshConfig) {
+		args.push('-F', opts.sshConfig);
+	}
 	if (typeof extra.connectTimeout === 'number') {
 		args.push('-o', `ConnectTimeout=${extra.connectTimeout}`);
 	}
@@ -503,6 +545,102 @@ export function buildSshArgs(opts, extra = {}) {
 	}
 
 	return args;
+}
+
+/**
+ * Parse the stdout of `powercfg /lastwake` into a structured wake-source object.
+ *
+ * Pure and total — never throws. It only interprets text; the SSH/exec failure
+ * path is handled by the caller. Tolerant of formatting variance across Windows
+ * builds: a key/value line may use `Key: Value` or `Key - Value`, and a blank
+ * value (e.g. an empty `Friendly Name:`) becomes null. Unrecognized output
+ * falls back to `{ type: 'unknown' }` with the verbatim `raw` retained so a
+ * downstream consumer can reparse — the feature never silently lies.
+ *
+ * Output (the caller wraps these with performedWake/captured):
+ *   - Device / Power Button / Fixed Feature / Wake Timer / ...:
+ *       { type:<value>, instancePath, friendlyName, description, manufacturer }
+ *   - No history (`Wake History Count - 0`): { type:'none', none:true }
+ *   - Unrecognized: { type:'unknown' }
+ * `raw` (verbatim input) is always included.
+ *
+ * @param {string} raw
+ * @returns {{type:string, none?:boolean, instancePath?:string|null, friendlyName?:string|null, description?:string|null, manufacturer?:string|null, raw:string}}
+ */
+export function parseWakeSource(raw) {
+	const text = typeof raw === 'string' ? raw : '';
+
+	// No wake history recorded — not an error, just nothing to attribute.
+	if (/Wake History Count\s*[-:]\s*0\b/i.test(text)) {
+		return { type: 'none', none: true, raw: text };
+	}
+
+	// Collect "Key: Value" / "Key - Value" pairs (last occurrence wins). The key
+	// is letters+spaces only, so "Wake Source [0]" / "Wake History [0]" headers
+	// (no separator) are skipped and instance-path backslashes never confuse it.
+	const fields = {};
+	for (const line of text.split('\n')) {
+		const m = line.trim().match(/^([A-Za-z][A-Za-z ]+?)\s*[:\-]\s*(.*)$/);
+		if (m) {
+			const key = m[1].trim().toLowerCase();
+			const value = m[2].trim();
+			fields[key] = value === '' ? null : value;
+		}
+	}
+
+	const type = fields['type'];
+	if (!type) {
+		return { type: 'unknown', raw: text };
+	}
+
+	return {
+		type,
+		instancePath: fields['instance path'] ?? null,
+		friendlyName: fields['friendly name'] ?? null,
+		description: fields['description'] ?? null,
+		manufacturer: fields['manufacturer'] ?? null,
+		raw: text,
+	};
+}
+
+/**
+ * Run the read-only `powercfg /lastwake` query over the post-wake SSH channel
+ * and return a journal `wakeSource` record. NEVER throws and NEVER changes the
+ * run's exit code — a capture failure (non-Windows target, powercfg missing,
+ * permission, dropped channel) is recorded as `{ captured: false, ... }`.
+ * Only called after a successful post-wake `wait`, so `performedWake` is true.
+ *
+ * @param {VerifyOptions} opts
+ * @param {{spawn?: typeof spawnSsh, signal?: AbortSignal}} [deps]
+ * @returns {Promise<object>}
+ */
+async function captureWakeSourceRecord(opts, deps = {}) {
+	try {
+		const r = await runRemote(opts, DEFAULT_WAKE_SOURCE_CMD, {
+			signal: deps.signal,
+			spawn: deps.spawn,
+			maxBuffer: opts.maxOutput,
+			connectTimeout: REMOTE_CONNECT_TIMEOUT_S,
+			serverAliveInterval: SERVER_ALIVE_INTERVAL_S,
+			serverAliveCountMax: SERVER_ALIVE_COUNT_MAX,
+		});
+		if (r.code !== 0) {
+			return {
+				performedWake: true,
+				captured: false,
+				error: r.stderr.trim() || r.stdout.trim() || `exit ${r.code}`,
+				reason: `powercfg /lastwake failed (exit ${r.code})`,
+			};
+		}
+		return { performedWake: true, captured: true, ...parseWakeSource(r.stdout) };
+	} catch (err) {
+		return {
+			performedWake: true,
+			captured: false,
+			error: err?.message ?? String(err),
+			reason: 'powercfg /lastwake could not run',
+		};
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -713,6 +851,14 @@ export async function executePlan(plan, opts, ctx, deps = {}) {
 					);
 				}
 				log.verbose(`  SSH up after ${Math.round(lastResult.totalMs / 1000)}s, ${lastResult.attempts} attempts`);
+				// Read-only wake-source capture (opt-in). Runs here — as soon as
+				// SSH is up and BEFORE remediate restarts anything — so powercfg
+				// /lastwake still reflects this run's wake. Never fatal; top-level
+				// journal.wakeSource, not a step (no step-count drift).
+				if (opts.captureWakeSource) {
+					log.verbose('  Capturing wake source (powercfg /lastwake)...');
+					journal.wakeSource = await captureWakeSourceRecord(opts, { spawn: deps.spawn, signal: ctrl.signal });
+				}
 				break;
 			}
 
@@ -744,7 +890,12 @@ export async function executePlan(plan, opts, ctx, deps = {}) {
 						serverAliveCountMax: SERVER_ALIVE_COUNT_MAX,
 					});
 					log.debug(`remediate: code=${r.code} stdout=${r.stdout.trim()} stderr=${r.stderr.trim()}`);
-					journal.steps.push({ kind: 'remediate', code: r.code, durationMs: r.durationMs, killed: r.killed });
+					const remediateStep = { kind: 'remediate', code: r.code, durationMs: r.durationMs, killed: r.killed };
+					if (opts.captureVerify) {
+						remediateStep.stdout = r.stdout;
+						remediateStep.stderr = r.stderr;
+					}
+					journal.steps.push(remediateStep);
 					if (timeoutMs && r.killed) {
 						throw new VerifyError(
 							EXIT.REMEDIATION_FAILED,
@@ -778,7 +929,12 @@ export async function executePlan(plan, opts, ctx, deps = {}) {
 						serverAliveCountMax: SERVER_ALIVE_COUNT_MAX,
 					});
 					log.debug(`verify: code=${r.code} stdout=${r.stdout.trim()} stderr=${r.stderr.trim()}`);
-					journal.steps.push({ kind: 'verify', code: r.code, durationMs: r.durationMs, killed: r.killed });
+					const verifyStep = { kind: 'verify', code: r.code, durationMs: r.durationMs, killed: r.killed };
+					if (opts.captureVerify) {
+						verifyStep.stdout = r.stdout;
+						verifyStep.stderr = r.stderr;
+					}
+					journal.steps.push(verifyStep);
 					if (timeoutMs && r.killed) {
 						throw new VerifyError(
 							EXIT.VERIFY_FAILED,

@@ -5,6 +5,7 @@ import {
 	decideAction,
 	createLogger,
 	buildSshArgs,
+	parseWakeSource,
 	probeSsh,
 	pollUntilReachable,
 	runRemote,
@@ -691,5 +692,229 @@ describe('executePlan', () => {
 			assert.ok(call.args.includes('ServerAliveInterval=5'), 'ServerAliveInterval present');
 			assert.ok(call.args.includes('ServerAliveCountMax=3'), 'ServerAliveCountMax present');
 		}
+	});
+});
+
+// ---------------------------------------------------------------------------
+// v1.5.0 wake-observability: flags, parseWakeSource, -F, and C2/C3 in executePlan
+// ---------------------------------------------------------------------------
+
+// Real `powercfg /lastwake` output captured from the mlbox target (2026-06-08).
+// Backslashes are doubled in the JS literal -> single backslashes at runtime.
+const WAKE_DEVICE = [
+	'Wake History Count - 1',
+	'Wake History [0]',
+	'  Wake Source Count - 1',
+	'  Wake Source [0]',
+	'    Type: Device',
+	'    Instance Path: PCI\\VEN_1022&DEV_1483&SUBSYS_14531022&REV_00\\3&11583659&0&0A',
+	'    Friendly Name: ',
+	'    Description: PCI-to-PCI Bridge',
+	'    Manufacturer: (Standard system devices)',
+].join('\n');
+const WAKE_POWER_BUTTON = ['Wake History Count - 1', 'Wake History [0]', '    Type: Power Button'].join('\n');
+const WAKE_FIXED_FEATURE = ['Wake History Count - 1', 'Wake History [0]', '    Type: Fixed Feature'].join('\n');
+const WAKE_NONE = 'Wake History Count - 0';
+
+describe('parseVerifyArgs — wake-observability flags (v1.5.0)', () => {
+	it('new flags default off/null', () => {
+		const o = parseVerifyArgs(['myhost', '--mac', 'AA:BB:CC:DD:EE:FF']);
+		assert.equal(o.captureWakeSource, false);
+		assert.equal(o.captureVerify, false);
+		assert.equal(o.status, false);
+		assert.equal(o.sshConfig, null);
+	});
+
+	it('parses --capture-wake-source and --capture-verify', () => {
+		const o = parseVerifyArgs(['myhost', '--mac', 'AA:BB:CC:DD:EE:FF', '--capture-wake-source', '--capture-verify']);
+		assert.equal(o.captureWakeSource, true);
+		assert.equal(o.captureVerify, true);
+	});
+
+	it('-F and --ssh-config both set sshConfig', () => {
+		assert.equal(parseVerifyArgs(['h', '--mac', 'AA:BB:CC:DD:EE:FF', '-F', '/p/cfg']).sshConfig, '/p/cfg');
+		assert.equal(parseVerifyArgs(['h', '--mac', 'AA:BB:CC:DD:EE:FF', '--ssh-config', '/q/cfg']).sshConfig, '/q/cfg');
+	});
+
+	it('--status does not require --mac', () => {
+		const o = parseVerifyArgs(['myhost', '--status']);
+		assert.equal(o.status, true);
+		assert.equal(o.mac, null);
+	});
+
+	it('--status is mutually exclusive with other mode flags', () => {
+		assert.throws(() => parseVerifyArgs(['myhost', '--status', '--no-wake']), /Conflicting mode flags/);
+		assert.throws(
+			() => parseVerifyArgs(['myhost', '--mac', 'AA:BB:CC:DD:EE:FF', '--status', '--force']),
+			/Conflicting mode flags/,
+		);
+	});
+});
+
+describe('parseWakeSource', () => {
+	it('parses the real Device sample (blank Friendly Name -> null)', () => {
+		const ws = parseWakeSource(WAKE_DEVICE);
+		assert.equal(ws.type, 'Device');
+		assert.equal(ws.instancePath, 'PCI\\VEN_1022&DEV_1483&SUBSYS_14531022&REV_00\\3&11583659&0&0A');
+		assert.equal(ws.friendlyName, null);
+		assert.equal(ws.description, 'PCI-to-PCI Bridge');
+		assert.equal(ws.manufacturer, '(Standard system devices)');
+		assert.equal(ws.raw, WAKE_DEVICE);
+	});
+
+	it('Power Button has no instance path', () => {
+		const ws = parseWakeSource(WAKE_POWER_BUTTON);
+		assert.equal(ws.type, 'Power Button');
+		assert.equal(ws.instancePath, null);
+		assert.equal(ws.description, null);
+	});
+
+	it('Fixed Feature parses its type', () => {
+		assert.equal(parseWakeSource(WAKE_FIXED_FEATURE).type, 'Fixed Feature');
+	});
+
+	it('no wake history -> {type:none, none:true}', () => {
+		const ws = parseWakeSource(WAKE_NONE);
+		assert.equal(ws.type, 'none');
+		assert.equal(ws.none, true);
+	});
+
+	it('tolerates the "Key - Value" separator variant', () => {
+		assert.equal(parseWakeSource('Type - Device').type, 'Device');
+	});
+
+	it('unrecognized text -> {type:unknown} with raw retained', () => {
+		assert.equal(parseWakeSource('garbage noise').type, 'unknown');
+		assert.equal(parseWakeSource('garbage noise').raw, 'garbage noise');
+		assert.equal(parseWakeSource('').type, 'unknown');
+	});
+
+	it('never throws on non-string input', () => {
+		assert.equal(parseWakeSource(undefined).type, 'unknown');
+	});
+});
+
+describe('buildSshArgs — -F/--ssh-config', () => {
+	it('injects -F <path> after BatchMode and before the remote command', () => {
+		const args = buildSshArgs(makeOpts({ sshConfig: '/etc/oi/ssh_config' }), { connectTimeout: 2, remoteCommand: 'true' });
+		const fIdx = args.indexOf('-F');
+		assert.ok(fIdx !== -1, '-F present');
+		assert.equal(args[fIdx + 1], '/etc/oi/ssh_config');
+		assert.ok(fIdx > args.indexOf('BatchMode=yes'), '-F after BatchMode');
+		assert.ok(fIdx < args.indexOf('true'), '-F before the remote command');
+	});
+
+	it('omits -F when sshConfig is null', () => {
+		assert.ok(!buildSshArgs(makeOpts(), { remoteCommand: 'true' }).includes('-F'));
+	});
+});
+
+describe('executePlan — wake-source capture (C2)', () => {
+	const runPlan = async (opts, plan, fake) => {
+		const journal = { host: opts.host, state: 'unreachable', steps: [], exit: 0, durationMs: 0 };
+		const log = createLogger('quiet', false, { stdout: () => {}, stderr: () => {} });
+		const ctrl = new AbortController();
+		await executePlan(plan, opts, { log, journal, total: plan.length + 1, ctrl }, {
+			spawn: fake.spawn, wake: async () => {}, sleep: () => Promise.resolve(),
+		});
+		return journal;
+	};
+
+	it('captures + parses wakeSource on the wake->wait path, before remediate', async () => {
+		const fake = createSpawnFake();
+		fake.queue({ code: 0 });                       // poll: SSH up
+		fake.queue({ code: 0, stdout: WAKE_DEVICE });  // powercfg /lastwake
+		fake.queue({ code: 0, stdout: 'restarted' });  // remediate
+		fake.queue({ code: 0, stdout: 'healthy' });    // verify
+		const opts = makeOpts({ captureWakeSource: true, remediate: 'restart', verifyCmd: 'check', grace: 0 });
+		const journal = await runPlan(opts, decideAction('unreachable', {}), fake);
+		assert.equal(journal.wakeSource.captured, true);
+		assert.equal(journal.wakeSource.performedWake, true);
+		assert.equal(journal.wakeSource.type, 'Device');
+		assert.equal(journal.wakeSource.friendlyName, null);
+		assert.equal(fake.calls.length, 4);
+		assert.ok(
+			fake.calls.some((c) => c.args.includes('/mnt/c/Windows/System32/powercfg.exe /lastwake')),
+			'powercfg /lastwake invoked over SSH',
+		);
+	});
+
+	it('is never fatal: a powercfg non-zero exit records captured:false and the run continues', async () => {
+		const fake = createSpawnFake();
+		fake.queue({ code: 0 });                              // poll up
+		fake.queue({ code: 1, stderr: 'Access is denied.' }); // powercfg fails
+		fake.queue({ code: 0, stdout: 'restarted' });         // remediate still runs
+		fake.queue({ code: 0, stdout: 'healthy' });           // verify still runs
+		const opts = makeOpts({ captureWakeSource: true, remediate: 'restart', verifyCmd: 'check', grace: 0 });
+		const journal = await runPlan(opts, decideAction('unreachable', {}), fake);
+		assert.equal(journal.wakeSource.captured, false);
+		assert.match(journal.wakeSource.reason, /powercfg/);
+		assert.equal(journal.steps.find((s) => s.kind === 'verify')?.code, 0, 'run continued past the failed capture');
+	});
+
+	it('is never fatal: a thrown SSH error records captured:false', async () => {
+		const fake = createSpawnFake();
+		fake.queue({ code: 0 });                                // poll up
+		fake.queue({ throw: new Error('connection reset') });   // powercfg throws
+		fake.queue({ code: 0, stdout: 'restarted' });           // remediate
+		fake.queue({ code: 0, stdout: 'healthy' });             // verify
+		const opts = makeOpts({ captureWakeSource: true, remediate: 'restart', verifyCmd: 'check', grace: 0 });
+		const journal = await runPlan(opts, decideAction('unreachable', {}), fake);
+		assert.equal(journal.wakeSource.captured, false);
+		assert.match(journal.wakeSource.error, /connection reset/);
+	});
+
+	it('does not capture (no powercfg call) when no wake was performed', async () => {
+		const fake = createSpawnFake();
+		fake.queue({ code: 0, stdout: 'restarted' }); // remediate
+		fake.queue({ code: 0, stdout: 'healthy' });   // verify
+		const opts = makeOpts({ captureWakeSource: true, remediate: 'restart', verifyCmd: 'check', grace: 0 });
+		const journal = await runPlan(opts, decideAction('reachable', { force: true }), fake);
+		assert.equal(journal.wakeSource, undefined, 'executePlan leaves wakeSource unset without a wait (bin sets the marker)');
+		assert.equal(fake.calls.length, 2, 'no extra powercfg SSH call');
+	});
+
+	it('makes no powercfg call when --capture-wake-source is off', async () => {
+		const fake = createSpawnFake();
+		fake.queue({ code: 0 });                      // poll up
+		fake.queue({ code: 0, stdout: 'restarted' }); // remediate
+		fake.queue({ code: 0, stdout: 'healthy' });   // verify
+		const opts = makeOpts({ remediate: 'restart', verifyCmd: 'check', grace: 0 });
+		const journal = await runPlan(opts, decideAction('unreachable', {}), fake);
+		assert.equal(journal.wakeSource, undefined);
+		assert.equal(fake.calls.length, 3, 'poll + remediate + verify only');
+	});
+});
+
+describe('executePlan — capture-verify (C3)', () => {
+	const runForce = async (opts, fake) => {
+		const journal = { host: opts.host, state: 'reachable', steps: [], exit: 0, durationMs: 0 };
+		const log = createLogger('quiet', false, { stdout: () => {}, stderr: () => {} });
+		const ctrl = new AbortController();
+		await executePlan(decideAction('reachable', { force: true }), opts, { log, journal, total: 4, ctrl }, {
+			spawn: fake.spawn, sleep: () => Promise.resolve(),
+		});
+		return journal;
+	};
+
+	it('includes remediate/verify stdout+stderr when set', async () => {
+		const fake = createSpawnFake();
+		fake.queue({ code: 0, stdout: 'restarted', stderr: '' });
+		fake.queue({ code: 0, stdout: 'cold_ms=6900 hot_ms=80 threshold_ms=2000', stderr: 'warn' });
+		const journal = await runForce(makeOpts({ captureVerify: true, remediate: 'just restart', verifyCmd: 'just warmup', grace: 0 }), fake);
+		const v = journal.steps.find((s) => s.kind === 'verify');
+		assert.equal(v.stdout, 'cold_ms=6900 hot_ms=80 threshold_ms=2000');
+		assert.equal(v.stderr, 'warn');
+		assert.equal(journal.steps.find((s) => s.kind === 'remediate').stdout, 'restarted');
+	});
+
+	it('omits stdout/stderr when off', async () => {
+		const fake = createSpawnFake();
+		fake.queue({ code: 0, stdout: 'restarted' });
+		fake.queue({ code: 0, stdout: 'healthy' });
+		const journal = await runForce(makeOpts({ remediate: 'just restart', verifyCmd: 'just warmup', grace: 0 }), fake);
+		const v = journal.steps.find((s) => s.kind === 'verify');
+		assert.equal(v.stdout, undefined);
+		assert.equal(v.stderr, undefined);
 	});
 });

@@ -36,6 +36,7 @@ async function main() {
 	const ctrl = new AbortController();
 	const startedAt = Date.now();
 	const journal = {
+		ts: new Date(startedAt).toISOString(),
 		host: opts.host,
 		state: null,
 		steps: [],
@@ -44,6 +45,9 @@ async function main() {
 	};
 
 	const flushJournal = () => {
+		// finishedAt is recomputed on every flush so it is present and accurate
+		// on all exit paths (success, error, dry-run, and the signal-kill flush).
+		journal.finishedAt = new Date().toISOString();
 		log.json(journal);
 		if (opts.journal) {
 			appendFileSync(opts.journal, JSON.stringify(journal) + '\n');
@@ -75,6 +79,7 @@ async function main() {
 			log.info('If reachable (default): no action.');
 			if (opts.remediate) log.info(`  remediation: ${opts.remediate}`);
 			if (opts.verifyCmd) log.info(`  verify: ${opts.verifyCmd}`);
+			if (opts.captureWakeSource) log.info('  wake-source: powercfg /lastwake captured after wake');
 			journal.state = 'dry-run';
 			journal.steps = ['probe', 'wake', 'wait', 'grace', 'remediate', 'verify'];
 			journal.durationMs = Date.now() - startedAt;
@@ -95,11 +100,32 @@ async function main() {
 			log.info(`  probe: ${probe.stderr.trim()}`);
 		}
 
+		// --status: probe-only liveness. Report reachability and exit 0 even when
+		// unreachable (it's a query, not a wake). No wake/remediate/wakeSource.
+		if (opts.status) {
+			journal.exit = EXIT.OK;
+			journal.durationMs = Date.now() - startedAt;
+			flushJournal();
+			log.info(`${opts.host}: ${state}`);
+			process.exit(EXIT.OK);
+		}
+
 		const plan = decideAction(state, opts);
+		const performedWake = plan.some((s) => s.kind === 'wake');
 		const total = plan.length + 1; // include the probe itself in step count
 		log.step(1, total, `Probed ${opts.host} → ${state}`);
 
 		await executePlan(plan, opts, { log, journal, total, ctrl });
+
+		// If --capture-wake-source was set but executePlan never captured (no
+		// post-wake SSH session reached), record WHY — so the consumer can tell
+		// "no wake performed" apart from "captured: external device". A reachable
+		// run must NOT report a stale prior /lastwake; --wake-only has no session.
+		if (opts.captureWakeSource && !journal.wakeSource) {
+			journal.wakeSource = performedWake
+				? { performedWake: true, captured: false, reason: 'wake-only — no SSH session to query lastwake' }
+				: { performedWake: false, captured: false, reason: 'host already reachable — no wake performed' };
+		}
 
 		journal.exit = EXIT.OK;
 		journal.durationMs = Date.now() - startedAt;
