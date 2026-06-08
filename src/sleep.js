@@ -36,6 +36,8 @@ SSH parameters:
   -i, --identity <path>      SSH identity file (default: ssh's default)
       --ssh-opt <opt>        Pass-through SSH option, repeatable
                              (e.g. --ssh-opt StrictHostKeyChecking=accept-new)
+  -F, --ssh-config <path>    Pass an explicit ssh config file (ssh -F <path>);
+                             for contexts where ~/.ssh/config is unreadable
 
 Sleep:
       --command <cmd>        Override sleep command (default: rundll32 SetSuspendState)
@@ -67,6 +69,7 @@ Note: -d means debug. The sibling tool (oi-wake-up) uses -d for delay.`;
  * @property {number} sshPort
  * @property {string|null} identity
  * @property {string[]} sshOpts
+ * @property {string|null} sshConfig
  * @property {string} command
  * @property {boolean} confirm
  * @property {boolean} dryRun
@@ -94,6 +97,7 @@ export function parseSleepArgs(argv) {
 		sshPort: 22,
 		identity: null,
 		sshOpts: [],
+		sshConfig: null,
 		command: DEFAULT_SLEEP_CMD,
 		confirm: true,
 		dryRun: false,
@@ -132,6 +136,10 @@ export function parseSleepArgs(argv) {
 				break;
 			case '--ssh-opt':
 				opts.sshOpts.push(requireValue(argv, ++i, arg));
+				break;
+			case '-F':
+			case '--ssh-config':
+				opts.sshConfig = requireValue(argv, ++i, arg);
 				break;
 			case '--command':
 				opts.command = requireValue(argv, ++i, arg);

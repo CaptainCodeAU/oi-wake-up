@@ -5,6 +5,7 @@ import {
 	decideSleepAction,
 	executeSleepPlan,
 	createLogger,
+	buildSshArgs,
 	SleepError,
 	EXIT,
 } from '../src/sleep.js';
@@ -95,6 +96,16 @@ describe('parseSleepArgs', () => {
 		const o = parseSleepArgs(['h', '--user', 'admin', '--identity', '/home/me/.ssh/key']);
 		assert.equal(o.user, 'admin');
 		assert.equal(o.identity, '/home/me/.ssh/key');
+	});
+
+	it('-F / --ssh-config set sshConfig (default null); forwarded via buildSshArgs', () => {
+		assert.equal(parseSleepArgs(['h']).sshConfig, null);
+		assert.equal(parseSleepArgs(['h', '-F', '/p/cfg']).sshConfig, '/p/cfg');
+		assert.equal(parseSleepArgs(['h', '--ssh-config', '/q/cfg']).sshConfig, '/q/cfg');
+		const args = buildSshArgs(parseSleepArgs(['h', '-F', '/etc/oi/ssh_config']), { remoteCommand: 'true' });
+		const fIdx = args.indexOf('-F');
+		assert.ok(fIdx !== -1 && args[fIdx + 1] === '/etc/oi/ssh_config', '-F path forwarded to ssh');
+		assert.ok(fIdx < args.indexOf('true'), '-F before the remote command');
 	});
 
 	it('--dry-run sets dryRun', () => {
