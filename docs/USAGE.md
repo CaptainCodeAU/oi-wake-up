@@ -214,6 +214,53 @@ The `--remediate`/`--verify` SSH connections also always carry `ConnectTimeout=1
 
 ---
 
+### 17. Attribute the wake — was it us, or something else? (`--capture-wake-source`)
+
+`oi-wake-verify --capture-wake-source` — after a wake-and-up run, runs the read-only `powercfg /lastwake` over the existing SSH channel and attaches a top-level `wakeSource` object to the `--json`/`--journal` record. The Windows attribution key: if `/lastwake` names the NIC, our magic packet woke the box; if it names a Power Button or another device, the box was coming up anyway. Read-only — never changes power policy. Windows/WSL targets only; on anything else the capture is recorded as `captured:false` and the run is unaffected (never fatal).
+
+```bash
+oi-wake-verify mymachine --mac AA:BB:CC:DD:EE:FF \
+    --remediate "bash -lc 'cd ~/repos/myproject && just restart'" \
+    --capture-wake-source --json | jq '.wakeSource'
+```
+
+The capture only runs when a wake was actually performed (it fires as soon as SSH is up, before remediation restarts anything, so `/lastwake` still reflects this run's wake). On an already-awake host (no wake) it records `{performedWake:false, captured:false, reason:"..."}` instead of reporting a stale prior wake — so a consumer can tell "no wake this run" apart from "captured: external device" by the `captured` boolean.
+
+---
+
+### 18. Capture verify/remediate output for automation (`--capture-verify`)
+
+`oi-wake-verify --capture-verify` — include the `--remediate` and `--verify` command `stdout`/`stderr` in the structured records regardless of verbosity, so automation can extract proof artifacts (e.g. the `cold_ms=N hot_ms=N threshold_ms=N` line from `just warmup`) without scraping `-d`. Bounded by `--max-output`.
+
+```bash
+oi-wake-verify mymachine --mac AA:BB:CC:DD:EE:FF \
+    --verify "bash -lc 'cd ~/repos/myproject && just warmup'" \
+    --capture-verify --json | jq -r '.steps[] | select(.kind=="verify") | .stdout'
+```
+
+---
+
+### 19. Probe-only liveness check (`--status`)
+
+`oi-wake-verify --status` — probe SSH and report reachable/unreachable, then exit 0 either way. No wake, no remediation, and (unlike `--no-wake --no-restart`, which aborts with exit 3 when unreachable) no error on an unreachable host. `--mac` is not required. Useful for monitoring scripts and Home Assistant sensors that just want a boolean "is the box up".
+
+```bash
+oi-wake-verify mymachine --status --json | jq -r '.state'   # -> reachable | unreachable
+```
+
+---
+
+### 20. Explicit ssh config file (`-F` / `--ssh-config`)
+
+`oi-wake-verify -F <path>` — forward an explicit ssh config to `ssh -F <path>`, for contexts where `~/.ssh/config` isn't readable: systemd units with `ProtectHome=true`, cron, containers. Collapses the manual decomposition (`--ssh-port`, `-i`, `--ssh-opt User=…`, `--ssh-opt UserKnownHostsFile=…`) back into a single config file. Applies to the probe, remediate, verify, and wake-source channels.
+
+```bash
+oi-wake-verify mymachine --mac AA:BB:CC:DD:EE:FF -F /etc/oi-wake/ssh_config \
+    --remediate "bash -lc 'cd ~/repos/myproject && just restart'"
+```
+
+---
+
 ## Shell aliases
 
 Define SSH connection details once in `~/.ssh/config`, then the alias only carries the wake/remediate bits:

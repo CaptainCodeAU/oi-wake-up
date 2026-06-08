@@ -125,6 +125,22 @@ Surfaces modified: `src/verify.js`, `bin/verify.js`, `bin/sleep.js` (SIGTERM/SIG
 
 ---
 
+### v1.5.0 — wake observability & attribution (2026-06-08)
+
+Requested by the same sister project (Proxmox CT150 dispatcher) that drove v1.4.0, as a peer proposal: turn every run into a self-describing, timestamped, attributable record so a downstream consumer can answer "did *we* wake this box, or did something else?" without re-implementing the Windows/WoL knowledge. All additive — existing consumers parse the new output unchanged. See DECISIONS #21.
+
+- ✓ **`ts` + `finishedAt`** (ISO-8601 UTC) on the journal/`--json` of both `oi-wake-verify` and `oi-wake-down`, present on all exit paths incl. the SIGTERM/SIGHUP flush
+- ✓ **`--capture-wake-source`** — opt-in, read-only `powercfg /lastwake` over the post-wake SSH channel → top-level `wakeSource` object (Windows wake-source attribution); `performedWake`-gated, never fatal, never mutates power policy (Decision #19)
+- ✓ **`--capture-verify`** — include `--remediate`/`--verify` `stdout`/`stderr` in their `steps[]` records regardless of verbosity
+- ✓ **`--status`** — probe-only liveness mode (exit 0 on reachable AND unreachable; no wake/remediate)
+- ✓ **`-F` / `--ssh-config <path>`** — forward `ssh -F <path>` for `ProtectHome`/cron contexts where `~/.ssh/config` is unreadable (retires the CT150 6-flag workaround)
+- ✓ **README external-wake recorder recipe** — documents recording wakes `oi-wake-verify` never sees (external magic packets, `WakeOnPattern`, HID, timers) via a Windows Task Scheduler job; docs-only (daemon stays out of scope)
+- ✓ 150/150 tests (125 existing + 25 new). Parser pinned to a real mlbox `/lastwake` sample; the 3 live cold/noop/failure runs deferred to supervised receptionist integration from CT150
+
+Surfaces: `src/verify.js`, `bin/verify.js`, `bin/sleep.js`, `tests/verify.test.js`, `tests/signals.test.js`, `tests/observability.test.js` (new), plus README + USAGE + GLOSSARY + AGENT_BRIEF + DECISIONS. Plan: `Plans/oi-wake-up-wake-clever-tarjan.md`.
+
+---
+
 ## In progress
 
 *(nothing currently in flight)*
@@ -138,11 +154,11 @@ Surfaces modified: `src/verify.js`, `bin/verify.js`, `bin/sleep.js` (SIGTERM/SIG
 These surfaced during v1.1 real-world testing on the 3090. Each is independently shippable; none are required for v1.1's primary use case. Listed in suggested ship order — items with implicit dependencies are noted inline.
 
 - ✓ **Surface probe stderr at default verbosity on probe failure** — *shipped in the 2026-06-02 hardening pass above.* Current behavior buried the actual failure reason at `-d`. Host-key errors, connection timeouts, auth failures, and sshd-down each have different fix paths; users shouldn't need debug mode to find out which. General-purpose fix that catches host-key failures *and* anything else weird that surfaces in the future. The SSH-territory agent specifically called this out as their preferred primary fix because it doesn't paper over future failure classes the way an `--accept-new-host` shortcut would.
-- ☐ **`--capture-verify` flag** — include verify command's stdout in the JSON output regardless of verbosity, so automation can extract proof artifacts (e.g. the `cold_ms=N hot_ms=N threshold_ms=N` line from `just warmup`) without scraping `-d` output. Strongest case of the polish bunch — concrete automation need surfaced multiple times during testing and reinforced by the 3090-side agent's parseable output design.
+- ✓ **`--capture-verify` flag** — *shipped in v1.5.0.* Includes the `--remediate`/`--verify` stdout+stderr in the JSON/journal step records regardless of verbosity, so automation can extract proof artifacts (e.g. the `cold_ms=N hot_ms=N threshold_ms=N` line from `just warmup`) without scraping `-d` output.
 - ☐ **`--accept-new-host` convenience flag** — *(ship only after probe stderr is surfaced at default verbosity)*. Wraps `--ssh-opt StrictHostKeyChecking=accept-new`. First-run ergonomic improvement; users currently need the verbose pass-through form. **Don't ship this in isolation** — silently auto-accepting host keys that the user can't see (because probe stderr is still buried at `-d`) would be worse than the current footgun. The two flags work together: surface stderr so users see *why* probe failed, then offer the convenience flag as the explicit fix.
 - ☐ **`--forward-agent` flag** — pass `-A` to spawned ssh invocations for verify or remediate commands that need agent forwarding back to the originating host. Lower priority — no current consumer; worth implementing when one materialises.
 - ☐ **ICMP-pre-probe + SSH-probe two-stage liveness** — distinguish "host asleep / off network" from "host reachable but SSH probe failed". Largest design surface; do last, or write a fresh plan in `Plans/` before implementing.
-- ☐ **`oi-wake-verify` UNATTENDSLP preflight warning** — after a successful wake, read the target's Windows "System unattended sleep timeout" over SSH and warn when the host will auto-return-to-sleep in ~N seconds unless kept awake. Surfaced 2026-06-02 when the 3090 box silently re-slept ~120s after each unattended WoL wake (Windows default). Read-only diagnostic that only *warns* (never changes host power policy — DECISIONS #19); gate behind a flag since it adds an SSH round-trip. See `IDEAS.md`.
+- ☐ **`oi-wake-verify` UNATTENDSLP preflight warning (`--check-sleep-policy`)** — after a successful wake, read the target's Windows "System unattended sleep timeout" over SSH and warn when the host will auto-return-to-sleep in ~N seconds unless kept awake. Surfaced 2026-06-02 when the 3090 box silently re-slept ~120s after each unattended WoL wake (Windows default). Read-only diagnostic that only *warns* (never changes host power policy — DECISIONS #19); gate behind a flag since it adds an SSH round-trip. **Still distinct from the v1.5.0 `--capture-wake-source`** (which reads `/lastwake` for *attribution* — who woke it); this would read `UNATTENDSLP`/`powercfg /requests` for a *re-sleep warning* (will it drop in ~N s). Kept as a separate flag/query per DECISIONS #21. See `IDEAS.md`.
 
 See `IDEAS.md` for the unstarted-ideas inbox; promote items here when scheduled.
 
