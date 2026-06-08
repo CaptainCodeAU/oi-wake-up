@@ -86,6 +86,16 @@ oi-wake-verify mymachine --mac AA:BB:CC:DD:EE:FF --dry-run -v
 
 **On the SSH command channel**: the `--remediate` and `--verify` connections always carry `ConnectTimeout=10` plus `ServerAliveInterval=5`/`ServerAliveCountMax=3`. This bounds a stalled TCP connect to ~10s (instead of OpenSSH's ~120s default) and detects a silently-dropped channel in ~15s — the failure mode that bites in the fragile window right after a WoL wake, when the target's network stack may not be fully up. A fast failure lets a calling wrapper buffer and retry on its next cycle rather than blocking. (The probe and `oi-wake-down`'s sleep channel are deliberately left as-is.)
 
+**On `--capture-wake-source`** (Windows/WSL): after a wake-and-up run, this runs the read-only `powercfg /lastwake` over the existing SSH channel and attaches a top-level `wakeSource` object to the `--json`/`--journal` record — the Windows wake-source attribution that answers *"did our magic packet wake the box, or did a NIC / HID / wake timer?"*. It is **read-only** (never changes power policy) and **never fatal** (a capture failure on a non-Windows target, a missing `powercfg`, or a dropped channel is recorded as `{captured:false, ...}` without changing the exit code). Capture only runs when a wake was actually performed and SSH came up — it fires before remediation restarts anything, so `/lastwake` still reflects this run's wake. On an already-awake host it records `{performedWake:false, captured:false, reason:"..."}` rather than a stale prior wake, so a consumer can key off the `captured` boolean to tell "no wake this run" apart from "captured: external device". Caveat: `/lastwake` reports only the most recent wake, so it can misattribute if something else woke the box between the packet and the SSH connect; the verbatim `raw` text is retained for sanity-checking.
+
+**On `--capture-verify`**: includes the `--remediate`/`--verify` command `stdout`+`stderr` in their `steps[]` records regardless of verbosity (bounded by `--max-output`), so automation can extract proof artifacts (e.g. `cold_ms=N hot_ms=N threshold_ms=N`) without scraping `-d` output: `… --capture-verify --json | jq -r '.steps[]|select(.kind=="verify")|.stdout'`.
+
+**On `--status`**: a probe-only liveness mode — probe SSH, report `reachable`/`unreachable`, and exit 0 either way (no wake, no remediation, and no exit 3 on an unreachable host). `--mac` is not required. For monitoring scripts and Home Assistant sensors.
+
+**On `-F` / `--ssh-config <path>`**: forwards an explicit ssh config to `ssh -F <path>` for contexts where `~/.ssh/config` is unreadable (systemd `ProtectHome=true`, cron, containers). Applies to the probe, remediate, verify, and wake-source channels.
+
+**On timestamps**: every `--json`/`--journal` record (on both `oi-wake-verify` and `oi-wake-down`) carries `ts` (run-start, ISO-8601 UTC) and `finishedAt` (run-end), present on all exit paths including a signal-kill flush — so a consumer can order and correlate runs against external logs.
+
 Run `oi-wake-verify --help` for the full flag reference.
 
 ### A note on what `--verify` should actually exercise
@@ -522,6 +532,55 @@ $rk = "HKLM:\SYSTEM\CurrentControlSet\Control\Power\User\PowerSchemes\$((powercf
 **Revert** by re-running the `setacvalueindex` command with `120` (the default) in place of `0`.
 
 > This setting only governs what happens *after* an unattended wake; it does not change how the machine sleeps on demand. Wake with `oi-wake-up` / `oi-wake-verify`, sleep with `oi-wake-down`.
+
+### Recording external wakes (wakes `oi-wake-verify` never sees)
+
+`oi-wake-verify --capture-wake-source` attributes the wakes *you* trigger. But the wakes a "why does my box keep turning on?" investigation cares about most are the ones **nobody triggered through the tool** — an external magic packet, ordinary LAN traffic when the NIC has **WakeOnPattern** enabled, a HID device (keyboard/mouse), or a wake timer. `oi-wake-verify` only runs when you wake the box, so it structurally *cannot* observe these. To get a complete wake history you record them **on the Windows side**, then union that stream with your `oi-wake-verify` journal.
+
+This is **documentation, not a shipped binary** — an always-on recorder is a daemon, which is out of scope for this project (see [DECISIONS.md](docs/DECISIONS.md) — "daemon = separate tool's job"). The recipe below is read-only: it only *reads* `powercfg /lastwake`, never changes power policy ([Decision #19](docs/DECISIONS.md)).
+
+**The idea:** a Windows **Task Scheduler** job triggered on each resume — Power-Troubleshooter **Event ID 1** (System log) and/or Kernel-Power **Event ID 107** — that appends one JSONL line per wake, in a shape that mirrors the `oi-wake-verify` journal (`{ts, wakeSource}`), to a path readable from WSL.
+
+1. **Recorder script** — save as `C:\ProgramData\oi-wake\record-wake.ps1`:
+
+   ```powershell
+   $dir = 'C:\ProgramData\oi-wake'
+   New-Item -ItemType Directory -Force -Path $dir | Out-Null
+   $raw = (& "$env:SystemRoot\System32\powercfg.exe" /lastwake | Out-String)
+   $type = ($raw -split "`n" | Where-Object { $_ -match '^\s*Type\s*[:\-]' } |
+            ForEach-Object { ($_ -split '[:\-]', 2)[1].Trim() } | Select-Object -First 1)
+   $desc = ($raw -split "`n" | Where-Object { $_ -match '^\s*Description\s*[:\-]' } |
+            ForEach-Object { ($_ -split '[:\-]', 2)[1].Trim() } | Select-Object -First 1)
+   $record = [ordered]@{
+       ts         = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ss.fffZ')
+       host       = $env:COMPUTERNAME
+       source     = 'external-wake-recorder'
+       wakeSource = [ordered]@{ captured = $true; type = $type; description = $desc; raw = $raw.Trim() }
+   }
+   Add-Content -Path (Join-Path $dir 'external-wakes.jsonl') -Value ($record | ConvertTo-Json -Compress -Depth 5)
+   ```
+
+2. **Register the trigger** (elevated PowerShell) — fire on Power-Troubleshooter Event ID 1:
+
+   ```powershell
+   $action  = New-ScheduledTaskAction -Execute 'powershell.exe' `
+       -Argument '-NonInteractive -ExecutionPolicy Bypass -File "C:\ProgramData\oi-wake\record-wake.ps1"'
+   $trigger = New-ScheduledTaskTrigger -AtStartup       # placeholder; replaced by the event subscription below
+   Register-ScheduledTask -TaskName 'oi-wake external recorder' -Action $action -Trigger $trigger `
+       -User 'SYSTEM' -RunLevel Highest -Force
+
+   # Swap the trigger for an event subscription on Power-Troubleshooter Event ID 1:
+   $task = Get-ScheduledTask -TaskName 'oi-wake external recorder'
+   $cls  = Get-CimClass MSFT_TaskEventTrigger root/Microsoft/Windows/TaskScheduler
+   $evt  = New-CimInstance -CimClass $cls -ClientOnly
+   $evt.Subscription = '<QueryList><Query Id="0"><Select Path="System">*[System[Provider[@Name=''Microsoft-Windows-Power-Troubleshooter''] and (EventID=1)]]</Select></Query></QueryList>'
+   $task.Triggers = @($evt)
+   Set-ScheduledTask -TaskName 'oi-wake external recorder' -Trigger $task.Triggers
+   ```
+
+3. **Read it from WSL / your dispatcher** — the log is at `/mnt/c/ProgramData/oi-wake/external-wakes.jsonl`. Because each line mirrors the `oi-wake-verify` journal (`ts` + `wakeSource`), a consumer can simply concatenate both streams and sort by `ts` to get one durable wake history that distinguishes "we woke it" (a record from `oi-wake-verify --capture-wake-source`) from "something else woke it" (a record from this recorder with no matching tool run).
+
+See also: [WakeOnMagicPacket / WakeOnPattern](#6-windows--realtek-nic-advanced-settings) and Realtek NIC settings (a `WakeOnPattern`-armed NIC wakes on ordinary LAN traffic, the usual cause of "random" daytime wakes), the [System unattended sleep timeout](#machine-wakes-then-goes-back-to-sleep-2-minutes-later) (the usual cause of a box re-sleeping ~2 min after a wake), and the Event ID 1 / 42 pair documented above.
 
 ### Time-limited wake window
 

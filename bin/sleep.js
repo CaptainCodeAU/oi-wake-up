@@ -36,6 +36,7 @@ async function main() {
 	const ctrl = new AbortController();
 	const startedAt = Date.now();
 	const journal = {
+		ts: new Date(startedAt).toISOString(),
 		host: opts.host,
 		state: null,
 		steps: [],
@@ -44,6 +45,9 @@ async function main() {
 	};
 
 	const flushJournal = () => {
+		// finishedAt recomputed on every flush so it is present on all exit paths
+		// (success, error, dry-run, signal-kill). Parity with oi-wake-verify.
+		journal.finishedAt = new Date().toISOString();
 		log.json(journal);
 		if (opts.journal) {
 			appendFileSync(opts.journal, JSON.stringify(journal) + '\n');

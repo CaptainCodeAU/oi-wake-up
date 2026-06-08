@@ -48,6 +48,11 @@ describe('oi-wake-verify signal handling (subprocess)', () => {
 				record.steps.some((s) => s.kind === 'wake' && s.ok === true),
 				'journal still names the steps that ran before the kill',
 			);
+			// C1: ts/finishedAt must survive the signal-kill flush (the whole point
+			// of writing the record on SIGTERM is to keep a timestamped trace).
+			assert.ok(Number.isFinite(Date.parse(record.ts)), 'ts present + valid on SIGTERM flush');
+			assert.ok(Number.isFinite(Date.parse(record.finishedAt)), 'finishedAt present + valid on SIGTERM flush');
+			assert.ok(Date.parse(record.finishedAt) >= Date.parse(record.ts), 'finishedAt >= ts');
 		} finally {
 			rmSync(dir, { recursive: true, force: true });
 		}
