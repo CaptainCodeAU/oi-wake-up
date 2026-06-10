@@ -107,6 +107,8 @@ Pick a verify command that exercises the **failing layer**, not an adjacent one.
 
 The example above delegates that decision to a `just warmup` recipe on the target host, which keeps the threshold logic colocated with the models and runtime it depends on. The general principle: your verify should fail when a real workload would.
 
+On the remediation side: `just restart` rebinds the GPU on this setup; if an in-place restart ever fails to restore GPU access, a full recreate — `docker compose up -d --force-recreate` — re-runs the container's device injection and is the fallback. That recovery recipe, like the verify recipe, is owned by the target's own project repo, not by `oi-wake-verify` — the tool just runs whatever `--remediate` command you give it.
+
 If you want **positive direct evidence** on top of latency gating (e.g. "I want to see the GPU light up during the probe call"), the verify recipe can sample `nvidia-smi` in parallel with the inference call and gate on utilisation. The 3090 reference setup ships both flavours: `just warmup` (routine, latency-only, ~5s) and `just gpu-probe` (diagnostic, latency + GPU-Util sampling, ~5–10s). The recipes share the same `key=value` parseable-line output discipline; either is a drop-in for `--verify`.
 
 ### Exit codes (stable contract)
