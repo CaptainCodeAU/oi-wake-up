@@ -1,0 +1,7 @@
+# pnpm reads project-scoped settings from this file.
+#
+# pmOnFail
+#   pnpm 12 with a `packageManager` pin adds pnpm itself and its platform
+#   binaries to the lockfile (packageManagerDependencies, ~40 entries). The
+#   pin stays in package.json; the self-install is switched off here.
+pmOnFail: ignore
