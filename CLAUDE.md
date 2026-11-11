@@ -4,7 +4,7 @@ Wake-on-LAN done right. No dependencies, just Node.js.
 
 Default branch is `master`.
 
-**Read the lane file first:** `~/CODE/CaptainCodeAU/oi-wake-up-isolinear/LANE.md`  says what this project owns, what it does not, and whose the rest is.
+Lane file: ~/CODE/CaptainCodeAU/oi-wake-up-isolinear/LANE.md. engage's launcher loads it into every engage session; a session not started by engage reads it first.
 
 ## Tech stack
 
