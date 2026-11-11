@@ -30,9 +30,9 @@ Last updated: 2026-06-08 (v1.5.0 — wake observability & attribution: ts/finish
 - ✓ Create `docs/METAPROMPT.md` (3 saved prompts)
 - ✓ Create `docs/IDEAS.md` (4 seed bullets)
 - ✓ Create `docs/GLOSSARY.md` (~10 WoL terms)
-- ✓ Cross-link `Plans/` → `METAPROMPT.md` sections (footer in oi-wake-verify plan)
+- ✓ Cross-link `../oi-wake-up-isolinear/workbench/plans/` → `METAPROMPT.md` sections (footer in oi-wake-verify plan)
 
-Committed as `9b5e24b`. Plan: `Plans/docs-reorg.md` (gitignored).
+Committed as `9b5e24b`. Plan: `../oi-wake-up-isolinear/workbench/plans/docs-reorg.md` (private companion).
 
 ### v1.1.0 — `oi-wake-verify` (second binary, shipped 2026-05-02)
 - ✓ New CLI: wake → SSH probe → remediation → verify, in one idempotent command
@@ -46,8 +46,8 @@ Committed as `9b5e24b`. Plan: `Plans/docs-reorg.md` (gitignored).
 Surfaces created/modified: `bin/verify.js`, `src/verify.js`, `src/spawn.js`, `tests/verify.test.js`, `tests/spawn-fake.js`, plus README + DECISIONS + CLAUDE.md updates.
 
 Drives: post-resume CUDA passthrough fix on the RTX 3090 LLM rig.  
-Plan (historical): `Plans/i-have-completely-banned-wild-quilt.md`  
-Execution view (historical): `Plans/you-re-picking-up-an-glimmering-hearth.md`
+Plan (historical): `../oi-wake-up-isolinear/workbench/plans/i-have-completely-banned-wild-quilt.md`  
+Execution view (historical): `../oi-wake-up-isolinear/workbench/plans/you-re-picking-up-an-glimmering-hearth.md`
 
 Two real bugs found and fixed during real-world testing — see `DECISIONS.md` #11 (post-remediate grace) and #12 (no `$USER` auto-default). Both have unit-test coverage.
 
@@ -75,7 +75,7 @@ Incremental improvement pass across the full codebase. No breaking changes. 78/7
 - ✓ `spawnSsh` — `maxBuffer` option (default 1 MiB) with `[output truncated]` marker; `sshBin` option for future alternate SSH binaries
 - ✓ `makeOpts(overrides)` test helper in `verify.test.js` — prevents test drift when parser defaults change
 
-Plan: `Plans/if-we-were-to-crispy-axolotl.md`
+Plan: `../oi-wake-up-isolinear/workbench/plans/if-we-were-to-crispy-axolotl.md`
 
 ---
 
@@ -95,7 +95,7 @@ Third binary completing the wake/sleep symmetry. SSH into the host, trigger Wind
 - ✓ `oi-wake-up/sleep` subpath export added to `package.json`
 - ✓ 110/110 tests (78 existing + 32 new sleep tests)
 
-Plan: `Plans/on-that-note-is-humble-music.md`
+Plan: `../oi-wake-up-isolinear/workbench/plans/on-that-note-is-humble-music.md`
 
 ---
 
@@ -139,7 +139,7 @@ Requested by the same sister project (Proxmox CT150 dispatcher) that drove v1.4.
 
 **Released:** merged to `master` via [PR #3](https://github.com/CaptainCodeAU/oi-wake-up/pull/3) (merge commit `7ab29c8`), tagged `v1.5.0`.
 
-Surfaces: `src/verify.js`, `bin/verify.js`, `src/sleep.js`, `bin/sleep.js`, `tests/verify.test.js`, `tests/sleep.test.js`, `tests/signals.test.js`, `tests/observability.test.js` (new), plus README + USAGE + GLOSSARY + AGENT_BRIEF + DECISIONS. Plan: `Plans/oi-wake-up-wake-clever-tarjan.md`.
+Surfaces: `src/verify.js`, `bin/verify.js`, `src/sleep.js`, `bin/sleep.js`, `tests/verify.test.js`, `tests/sleep.test.js`, `tests/signals.test.js`, `tests/observability.test.js` (new), plus README + USAGE + GLOSSARY + AGENT_BRIEF + DECISIONS. Plan: `../oi-wake-up-isolinear/workbench/plans/oi-wake-up-wake-clever-tarjan.md`.
 
 ---
 
@@ -159,7 +159,7 @@ These surfaced during v1.1 real-world testing on the 3090. Each is independently
 - ✓ **`--capture-verify` flag** — *shipped in v1.5.0.* Includes the `--remediate`/`--verify` stdout+stderr in the JSON/journal step records regardless of verbosity, so automation can extract proof artifacts (e.g. the `cold_ms=N hot_ms=N threshold_ms=N` line from `just warmup`) without scraping `-d` output.
 - ☐ **`--accept-new-host` convenience flag** — *(ship only after probe stderr is surfaced at default verbosity)*. Wraps `--ssh-opt StrictHostKeyChecking=accept-new`. First-run ergonomic improvement; users currently need the verbose pass-through form. **Don't ship this in isolation** — silently auto-accepting host keys that the user can't see (because probe stderr is still buried at `-d`) would be worse than the current footgun. The two flags work together: surface stderr so users see *why* probe failed, then offer the convenience flag as the explicit fix.
 - ☐ **`--forward-agent` flag** — pass `-A` to spawned ssh invocations for verify or remediate commands that need agent forwarding back to the originating host. Lower priority — no current consumer; worth implementing when one materialises.
-- ☐ **ICMP-pre-probe + SSH-probe two-stage liveness** — distinguish "host asleep / off network" from "host reachable but SSH probe failed". Largest design surface; do last, or write a fresh plan in `Plans/` before implementing.
+- ☐ **ICMP-pre-probe + SSH-probe two-stage liveness** — distinguish "host asleep / off network" from "host reachable but SSH probe failed". Largest design surface; do last, or write a fresh plan in `../oi-wake-up-isolinear/workbench/plans/` before implementing.
 - ☐ **`oi-wake-verify` UNATTENDSLP preflight warning (`--check-sleep-policy`)** — after a successful wake, read the target's Windows "System unattended sleep timeout" over SSH and warn when the host will auto-return-to-sleep in ~N seconds unless kept awake. Surfaced 2026-06-02 when the 3090 box silently re-slept ~120s after each unattended WoL wake (Windows default). Read-only diagnostic that only *warns* (never changes host power policy — DECISIONS #19); gate behind a flag since it adds an SSH round-trip. **Still distinct from the v1.5.0 `--capture-wake-source`** (which reads `/lastwake` for *attribution* — who woke it); this would read `UNATTENDSLP`/`powercfg /requests` for a *re-sleep warning* (will it drop in ~N s). Kept as a separate flag/query per DECISIONS #21. See `IDEAS.md`.
 
 See `IDEAS.md` for the unstarted-ideas inbox; promote items here when scheduled.

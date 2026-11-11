@@ -43,7 +43,6 @@ oi-wake-up/
 │   ├── METAPROMPT.md     # Saved opening prompts for fresh sessions
 │   ├── IDEAS.md          # Parking lot for unstarted ideas
 │   └── GLOSSARY.md       # WoL terminology lookup
-├── Plans/                # Active and historical implementation plans
 ├── .nvmrc
 ├── .envrc                # direnv auto-activation
 ├── package.json
@@ -66,7 +65,7 @@ oi-wake-up/
 - **pnpm is canonical; npm is banned.** Bun is acceptable. Never write `npm install`, `npm i`, `npm publish`, `npx`, etc. — use pnpm equivalents.
 - **No npm publishing.** This project ships via `pnpm install -g .` from a local clone. Do not suggest publishing to the npm registry.
 - **Args + shell aliases over config files.** For personal-use CLIs, CLI flags + shell aliases are the personalisation layer. Don't add JSON/YAML/TOML config files unless explicitly requested. See `docs/DECISIONS.md`.
-- **For new features: read the plans first.** Older plans are in `Plans/` (gitignored, this Mac only); new plans go in the companion's `workbench/plans/`. The plan file is source of truth — do not re-derive design decisions captured there.
+- **For new features: read the plans first.** Plans are in the companion's `workbench/plans/`. The plan file is source of truth — do not re-derive design decisions captured there.
 - **Use `node:test`**, not vitest or any other test framework.
 - **Run tests after every change.**
 
