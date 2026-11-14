@@ -541,7 +541,7 @@ $rk = "HKLM:\SYSTEM\CurrentControlSet\Control\Power\User\PowerSchemes\$((powercf
 
 `oi-wake-verify --capture-wake-source` attributes the wakes *you* trigger. But the wakes a "why does my box keep turning on?" investigation cares about most are the ones **nobody triggered through the tool** — an external magic packet, ordinary LAN traffic when the NIC has **WakeOnPattern** enabled, a HID device (keyboard/mouse), or a wake timer. `oi-wake-verify` only runs when you wake the box, so it structurally *cannot* observe these. To get a complete wake history you record them **on the Windows side**, then union that stream with your `oi-wake-verify` journal.
 
-This is **documentation, not a shipped binary** — an always-on recorder is a daemon, which is out of scope for this project (see [DECISIONS.md](docs/DECISIONS.md) — "daemon = separate tool's job"). The recipe below is read-only: it only *reads* `powercfg /lastwake`, never changes power policy ([Decision #19](docs/DECISIONS.md)).
+This is **documentation, not a shipped binary** — an always-on recorder is a daemon, which is out of scope for this project (see the design-decisions log, kept privately — "daemon = separate tool's job"). The recipe below is read-only: it only *reads* `powercfg /lastwake`, never changes power policy (design decision #19).
 
 **The idea:** a Windows **Task Scheduler** job triggered on each resume — Power-Troubleshooter **Event ID 1** (System log) and/or Kernel-Power **Event ID 107** — that appends one JSONL line per wake, in a shape that mirrors the `oi-wake-verify` journal (`{ts, wakeSource}`), to a path readable from WSL.
 

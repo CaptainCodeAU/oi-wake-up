@@ -311,6 +311,4 @@ See [README § Recommended setup](../README.md#recommended-setup-lean-on-sshconf
 
 - [README](../README.md) — full flag reference, prerequisites, troubleshooting tables
 - [docs/GLOSSARY.md](GLOSSARY.md) — WoL terminology (`--grace`, magic packet, sync stream, `BatchMode`, host key entry, wake source, etc.)
-- [docs/AGENT_BRIEF.md](AGENT_BRIEF.md) — self-contained connection brief for an LLM agent / automation (flag tables, `--json` schema incl. `wakeSource`, gotchas)
-- [docs/DECISIONS.md](DECISIONS.md) — design rationale (e.g. why `--grace` runs twice on the asleep path, why `--user` doesn't auto-default to `$USER`)
 - [docs/ROADMAP.md](ROADMAP.md) — what's shipped and what's planned

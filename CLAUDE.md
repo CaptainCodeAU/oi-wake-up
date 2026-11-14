@@ -37,10 +37,7 @@ oi-wake-up/
 │   └── dgram-fake.js         # Recording fake for dgram socket factory — used by index.test.js
 ├── docs/
 │   ├── ROADMAP.md        # Done / in-progress / planned / parked
-│   ├── DECISIONS.md      # Append-only design-decisions log
 │   ├── USAGE.md          # Worked examples for all three binaries
-│   ├── AGENT_BRIEF.md    # Self-contained agent/automation connection brief
-│   ├── METAPROMPT.md     # Saved opening prompts for fresh sessions
 │   ├── IDEAS.md          # Parking lot for unstarted ideas
 │   └── GLOSSARY.md       # WoL terminology lookup
 ├── .nvmrc
@@ -64,7 +61,7 @@ oi-wake-up/
 - **Zero external dependencies.** Use only Node.js built-in modules. This is a hard constraint, not a guideline. `bin/verify.js` and `src/verify.js` depend only on `src/index.js` and Node built-ins — no new runtime deps.
 - **pnpm is canonical; npm is banned.** Bun is acceptable. Never write `npm install`, `npm i`, `npm publish`, `npx`, etc. — use pnpm equivalents.
 - **No npm publishing.** This project ships via `pnpm install -g .` from a local clone. Do not suggest publishing to the npm registry.
-- **Args + shell aliases over config files.** For personal-use CLIs, CLI flags + shell aliases are the personalisation layer. Don't add JSON/YAML/TOML config files unless explicitly requested. See `docs/DECISIONS.md`.
+- **Args + shell aliases over config files.** For personal-use CLIs, CLI flags + shell aliases are the personalisation layer. Don't add JSON/YAML/TOML config files unless explicitly requested. See the decisions log, `../oi-wake-up-isolinear/workbench/project-docs/2026-11-15/DECISIONS.md` (the companion also holds AGENT_BRIEF.md and METAPROMPT.md beside it).
 - **For new features: read the plans first.** Plans are in the companion's `workbench/plans/`. The plan file is source of truth — do not re-derive design decisions captured there.
 - **Use `node:test`**, not vitest or any other test framework.
 - **Run tests after every change.**

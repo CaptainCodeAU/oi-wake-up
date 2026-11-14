@@ -49,7 +49,7 @@ Drives: post-resume CUDA passthrough fix on the RTX 3090 LLM rig.
 Plan (historical): `../oi-wake-up-isolinear/workbench/plans/i-have-completely-banned-wild-quilt.md`  
 Execution view (historical): `../oi-wake-up-isolinear/workbench/plans/you-re-picking-up-an-glimmering-hearth.md`
 
-Two real bugs found and fixed during real-world testing — see `DECISIONS.md` #11 (post-remediate grace) and #12 (no `$USER` auto-default). Both have unit-test coverage.
+Two real bugs found and fixed during real-world testing — see design decisions #11 (post-remediate grace) and #12 (no `$USER` auto-default). Both have unit-test coverage.
 
 ### v1.2.0 — incremental re-architecture (2026-05-03)
 
@@ -168,8 +168,8 @@ See `IDEAS.md` for the unstarted-ideas inbox; promote items here when scheduled.
 
 ## Out of scope / parked
 
-- ⊘ **Publishing to npm registry** — install via `pnpm install -g .` from a local clone. See `DECISIONS.md` #4.
-- ⊘ **Configuration file support** (JSON/YAML/TOML) — args + shell aliases are canonical. See `DECISIONS.md` #5.
+- ⊘ **Publishing to npm registry** — install via `pnpm install -g .` from a local clone. See design decision #4.
+- ⊘ **Configuration file support** (JSON/YAML/TOML) — args + shell aliases are canonical. See design decision #5.
 - ⊘ **Multi-target orchestration / `--all` mode** — YAGNI until 3+ targets needed.
 - ⊘ **Notification integration** (Pushover / ntfy / Slack) — better as a post-hook than baked in.
 - ⊘ **Daemon / scheduler-aware mode** — separate tool's job.
