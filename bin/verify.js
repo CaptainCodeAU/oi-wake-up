@@ -125,7 +125,7 @@ async function main() {
 		const plan = decideAction(probe.kind === 'reachable' ? 'reachable' : probe.kind, opts);
 		const performedWake = plan.some((s) => s.kind === 'wake');
 		const total = plan.length + 1; // include the probe itself in step count
-		log.step(1, total, `Probed ${opts.host} → ${state}`);
+		log.step(1, total, `Probed ${opts.host} → ${state}${probe.kind !== state ? ` (${probe.kind})` : ''}`);
 
 		await executePlan(plan, opts, { log, journal, total, ctrl });
 

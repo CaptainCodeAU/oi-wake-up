@@ -101,7 +101,7 @@ async function main() {
 
 		const plan = decideSleepAction(probe.kind === 'reachable' ? 'reachable' : probe.kind, opts);
 		const total = plan.length + 1; // include probe in step count
-		log.step(1, total, `Probed ${opts.host} → ${state}`);
+		log.step(1, total, `Probed ${opts.host} → ${state}${probe.kind !== state ? ` (${probe.kind})` : ''}`);
 
 		await executeSleepPlan(plan, opts, { log, journal, total, ctrl });
 

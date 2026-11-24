@@ -7,6 +7,7 @@ import {
 	diagnoseAuth,
 	STOP_KINDS,
 	exitForKind,
+	stopMessage,
 } from '../src/probe.js';
 import { EXIT as VERIFY_EXIT } from '../src/verify.js';
 import { EXIT as SLEEP_EXIT } from '../src/sleep.js';
@@ -289,5 +290,25 @@ describe('diagnoseAuth', () => {
 		await diagnoseAuth(opts, { exec, home: '/h', exists: () => true });
 		const kg = calls.filter((c) => c.cmd === 'ssh-keygen').map((c) => c.args[1]);
 		assert.deepEqual(kg, ['/h/.ssh/a.pub', '/abs/b.pub']);
+	});
+});
+
+describe('live-proof fixes (v1.6.0, found against mlbox 24 Nov)', () => {
+	it('firstStderrLine replaces IPv4 and IPv6 addresses with <addr>', () => {
+		assert.equal(firstStderrLine('admin@192.0.2.5: Permission denied (publickey).\n'), 'admin@<addr>: Permission denied (publickey).');
+		assert.equal(firstStderrLine('ssh: connect to host fe80::1%en0 port 22: Host is down\n'), 'ssh: connect to host <addr> port 22: Host is down');
+		assert.equal(firstStderrLine('ssh: connect to host 2001:db8::5 port 22: Operation timed out\n'), 'ssh: connect to host <addr> port 22: Operation timed out');
+	});
+	it('diagnoseAuth drops IdentityFile none', async () => {
+		const exec = async (cmd) => (cmd === 'ssh'
+			? { code: 0, stdout: 'identityfile none\nidentityagent none\n', stderr: '' }
+			: { code: 1, stdout: '', stderr: '' });
+		const d = await diagnoseAuth({ host: 'h' }, { exec, home: '/h', exists: () => true });
+		assert.deepEqual(d.identityFiles, []);
+	});
+	it('stopMessage with no agent and no key file says so plainly', () => {
+		const m = stopMessage('auth_refused', 'h', { auth: { agent: 'disabled', keyCount: 0, matchingKeyLoaded: false }, identityFiles: [] });
+		assert.ok(!/only none/.test(m), m);
+		assert.match(m, /IdentityAgent is none and no IdentityFile is set/);
 	});
 });

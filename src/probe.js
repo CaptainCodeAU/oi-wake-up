@@ -147,6 +147,9 @@ function redact(s, home) {
 	out = out.replace(/SHA256:[A-Za-z0-9+/=]+/g, 'SHA256:[redacted]');
 	out = out.replace(/MD5:(?:[0-9a-f]{2}:){15}[0-9a-f]{2}/gi, 'MD5:[redacted]');
 	out = out.replace(/AAAA[A-Za-z0-9+/=]{16,}/g, '[redacted]');
+	// Addresses stay out of JSON and the journal (journal.host names the target).
+	out = out.replace(/\b(?:\d{1,3}\.){3}\d{1,3}\b/g, '<addr>');
+	out = out.replace(/(?<![\w:])(?:[0-9a-f]{1,4}:){1,7}:?(?:[0-9a-f]{1,4})?(?:%\w+)?(?![\w:])/gi, (m) => (m.includes('::') || m.split(':').length > 3 ? '<addr>' : m));
 	if (home && home !== '/') out = out.split(home).join('~');
 	return out;
 }
@@ -209,7 +212,7 @@ export async function diagnoseAuth(opts, deps = {}) {
 				const m = line.trim().match(/^(\S+)\s+(.+)$/);
 				if (!m) continue;
 				const key = m[1].toLowerCase();
-				if (key === 'identityfile') identityFiles.push(m[2].trim());
+				if (key === 'identityfile' && m[2].trim().toLowerCase() !== 'none') identityFiles.push(m[2].trim());
 				else if (key === 'identityagent') identityAgent = m[2].trim();
 			}
 		}
@@ -289,7 +292,11 @@ export function stopMessage(kind, host, diag = null) {
 			let why;
 			if (!a || a.agent === 'unknown') why = 'the key was refused';
 			else if (a.agent === 'no_agent') why = 'no ssh-agent is running';
-			else if (a.agent === 'disabled') why = `IdentityAgent is none, so only ${files} on disk can be offered`;
+			else if (a.agent === 'disabled') {
+				why = diag.identityFiles?.length
+					? `IdentityAgent is none, so only ${files} on disk can be offered (with BatchMode, only if it has no passphrase)`
+					: 'IdentityAgent is none and no IdentityFile is set, so no key was offered';
+			}
 			else if (a.agent === 'none') why = 'ssh-agent has no keys loaded';
 			else if (a.matchingKeyLoaded === false) why = `no key matching ${files} is loaded in ssh-agent`;
 			else if (a.matchingKeyLoaded === true) why = `a key matching ${files} is loaded, but the host refused it (check its authorized_keys)`;
