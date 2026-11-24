@@ -143,7 +143,7 @@ Surfaces: `src/verify.js`, `bin/verify.js`, `src/sleep.js`, `bin/sleep.js`, `tes
 
 ### v1.6.0 — why a machine did not answer (2026-11-24)
 
-A refused SSH login read as "unreachable", so `oi-wake-down` said "already asleep" and `oi-wake-verify` waited out its timeout (#8163). Agreed in a team round (oi-wake-up-main, dotfiles-main, Network_Plan-main as security owner, test-runner-3090-main); Gavin's go, oi-wake-up 45dadad4 Q2: "A".
+A refused SSH login read as "unreachable", so `oi-wake-down` said "already asleep" and `oi-wake-verify` waited out its timeout (#8163, closed 24 Nov with the live proof). Agreed in a team round (oi-wake-up-main, dotfiles-main, Network_Plan-main as security owner, test-runner-3090-main); Gavin's go, oi-wake-up 45dadad4 Q2: "A".
 
 - ✓ **Probe kinds** in both tools, from ssh's exit code and stderr: `reachable`, `unreachable`, `auth_refused`, `hostkey_missing`, `hostkey_changed`, `sandbox_blocked`, `ssh_permissions`, `unknown`. Stop kinds end the run at once (never retried, waited out or re-woken). `state` unchanged for callers.
 - ✓ **Exit 8 AUTH_REFUSED, 9 HOSTKEY_FAILED**, same numbers in both tools; a test checks the two tables agree.
