@@ -3,6 +3,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 import { isValidMAC, wake } from './index.js';
 import { spawnSsh } from './spawn.js';
+import { classifyProbe, SHARED_EXIT, STOP_KINDS, exitForKind, stopMessage } from './probe.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -407,7 +408,12 @@ function parseNonNegativeInt(value, flag) {
  * Pure state-machine: given the SSH-probe outcome and mode flags,
  * return the ordered list of steps the executor should perform.
  *
- * @param {'reachable'|'unreachable'} state
+ * The state is the probe's kind (v1.6.0). A stop kind (auth_refused,
+ * hostkey_missing, hostkey_changed, sandbox_blocked, ssh_permissions) aborts
+ * at once whatever the mode flags: never woken, never waited out. 'unknown'
+ * keeps the unreachable path, as before 1.6.0.
+ *
+ * @param {'reachable'|'unreachable'|'unknown'|'auth_refused'|'hostkey_missing'|'hostkey_changed'|'sandbox_blocked'|'ssh_permissions'} state
  * @param {ModeFlags} flags
  * @returns {ActionStep[]}
  */
@@ -415,6 +421,10 @@ export function decideAction(state, flags = {}) {
 	if (flags.dryRun) {
 		// Dry-run prints both branches; the executor renders the message.
 		return [{ kind: 'noop', reason: 'dry-run' }];
+	}
+
+	if (STOP_KINDS.has(state)) {
+		return [{ kind: 'abort', exitCode: exitForKind(state), stopKind: state, reason: `probe failed: ${state}` }];
 	}
 
 	if (state === 'reachable') {
@@ -652,7 +662,7 @@ async function captureWakeSourceRecord(opts, deps = {}) {
  *
  * @param {VerifyOptions} opts
  * @param {{spawn?: typeof spawnSsh, signal?: AbortSignal}} [deps]
- * @returns {Promise<{reachable: boolean, code: number, stderr: string, durationMs: number}>}
+ * @returns {Promise<{reachable: boolean, kind: string, code: number, stderr: string, durationMs: number}>}
  */
 export async function probeSsh(opts, deps = {}) {
 	const spawnFn = deps.spawn ?? spawnSsh;
@@ -664,6 +674,7 @@ export async function probeSsh(opts, deps = {}) {
 	const result = await spawnFn(args, { signal: deps.signal });
 	return {
 		reachable: result.code === 0,
+		kind: classifyProbe(result, deps.check ? { check: deps.check } : {}).kind,
 		code: result.code,
 		stderr: result.stderr,
 		durationMs: result.durationMs,
@@ -676,7 +687,10 @@ export async function probeSsh(opts, deps = {}) {
  * @param {VerifyOptions} opts
  * @param {(attempt: number, code: number, durationMs: number) => void} [onProgress]
  * @param {{spawn?: typeof spawnSsh, signal?: AbortSignal, sleep?: (ms: number) => Promise<void>}} [deps]
- * @returns {Promise<{ok: boolean, attempts: number, totalMs: number}>}
+ * A probe of a stop kind (refused login, host-key or ~/.ssh fault) ends the
+ * loop at once with `stopKind`: the box answered, so waiting cannot help.
+ *
+ * @returns {Promise<{ok: boolean, attempts: number, totalMs: number, stopKind?: string, lastProbe?: object}>}
  */
 export async function pollUntilReachable(opts, onProgress, deps = {}) {
 	const spawnFn = deps.spawn ?? spawnSsh;
@@ -684,22 +698,27 @@ export async function pollUntilReachable(opts, onProgress, deps = {}) {
 	const start = Date.now();
 	const deadline = start + opts.timeout * 1000;
 	let attempts = 0;
+	let lastProbe;
 
 	while (Date.now() < deadline) {
 		if (deps.signal?.aborted) {
-			return { ok: false, attempts, totalMs: Date.now() - start };
+			return { ok: false, attempts, totalMs: Date.now() - start, lastProbe };
 		}
 		attempts++;
 		const result = await probeSsh(opts, { spawn: spawnFn, signal: deps.signal });
+		lastProbe = result;
 		if (onProgress) onProgress(attempts, result.code, result.durationMs);
 		if (result.reachable) {
-			return { ok: true, attempts, totalMs: Date.now() - start };
+			return { ok: true, attempts, totalMs: Date.now() - start, lastProbe };
+		}
+		if (STOP_KINDS.has(result.kind)) {
+			return { ok: false, attempts, totalMs: Date.now() - start, stopKind: result.kind, lastProbe };
 		}
 		if (Date.now() + opts.poll * 1000 >= deadline) break;
 		await sleep(opts.poll * 1000);
 	}
 
-	return { ok: false, attempts, totalMs: Date.now() - start };
+	return { ok: false, attempts, totalMs: Date.now() - start, lastProbe };
 }
 
 /**
@@ -761,9 +780,16 @@ function sleep(ms, signal) {
 // ---------------------------------------------------------------------------
 
 export class VerifyError extends Error {
-	constructor(exitCode, message) {
+	/**
+	 * @param {number} exitCode
+	 * @param {string} message
+	 * @param {{kind?: string, probe?: object}} [extra] kind: the probe kind behind a stop; probe: its raw result
+	 */
+	constructor(exitCode, message, extra = {}) {
 		super(message);
 		this.exitCode = exitCode;
+		if (extra.kind) this.kind = extra.kind;
+		if (extra.probe) this.probe = extra.probe;
 	}
 }
 
@@ -772,14 +798,11 @@ export class VerifyError extends Error {
 // ---------------------------------------------------------------------------
 
 export const EXIT = {
-	OK: 0,
-	MISCONFIG: 1,
+	...SHARED_EXIT, // OK 0, MISCONFIG 1, AUTH_REFUSED 8, HOSTKEY_FAILED 9, USAGE 64, INTERRUPTED 130
 	WAKE_FAILED: 2,
 	SSH_TIMEOUT: 3,
 	REMEDIATION_FAILED: 4,
 	VERIFY_FAILED: 5,
-	USAGE: 64,
-	INTERRUPTED: 130,
 };
 
 // ---------------------------------------------------------------------------
@@ -810,7 +833,11 @@ export async function executePlan(plan, opts, ctx, deps = {}) {
 
 			case 'abort':
 				journal.steps.push({ kind: 'abort', reason: step.reason });
-				throw new VerifyError(step.exitCode, step.reason);
+				throw new VerifyError(
+					step.exitCode,
+					step.stopKind ? stopMessage(step.stopKind, opts.host) : step.reason,
+					step.stopKind ? { kind: step.stopKind } : {},
+				);
 
 			case 'wake':
 				log.step(stepNum, total, `Sending magic packet to ${opts.mac} via ${opts.broadcast}:${opts.port}`);
@@ -836,14 +863,26 @@ export async function executePlan(plan, opts, ctx, deps = {}) {
 						(attempt, code, ms) => log.verbose(`  attempt ${attempt}: code=${code} (${ms}ms)`),
 						{ signal: ctrl.signal, spawn: deps.spawn, sleep: deps.sleep },
 					);
-					if (lastResult.ok) break;
+					if (lastResult.ok || lastResult.stopKind) break;
 				}
-				journal.steps.push({
-					kind: 'wait',
-					ok: lastResult.ok,
-					attempts: lastResult.attempts,
-					totalMs: lastResult.totalMs,
-				});
+				{
+					const waitStep = {
+						kind: 'wait',
+						ok: lastResult.ok,
+						attempts: lastResult.attempts,
+						totalMs: lastResult.totalMs,
+					};
+					if (lastResult.stopKind) waitStep.stopKind = lastResult.stopKind;
+					journal.steps.push(waitStep);
+				}
+				if (lastResult.stopKind) {
+					// The box came up and answered, but refused: never re-woken, never waited out.
+					throw new VerifyError(
+						exitForKind(lastResult.stopKind),
+						stopMessage(lastResult.stopKind, opts.host),
+						{ kind: lastResult.stopKind, probe: lastResult.lastProbe },
+					);
+				}
 				if (!lastResult.ok) {
 					throw new VerifyError(
 						EXIT.SSH_TIMEOUT,

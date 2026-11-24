@@ -408,3 +408,56 @@ describe('executeSleepPlan — journal shape', () => {
 		assert.equal(typeof c?.totalMs, 'number');
 	});
 });
+
+// ---------------------------------------------------------------------------
+// v1.6.0: probe kinds (#8163) — never "already asleep" on auth or host-key
+// ---------------------------------------------------------------------------
+
+describe('decideSleepAction — stop kinds (v1.6.0)', () => {
+	const cases = [
+		['auth_refused', 8],
+		['hostkey_missing', 9],
+		['hostkey_changed', 9],
+		['sandbox_blocked', 1],
+		['ssh_permissions', 1],
+	];
+	for (const [kind, code] of cases) {
+		it(`${kind} aborts with exit ${code}, never "already asleep"`, () => {
+			const plan = decideSleepAction(kind, makeOpts());
+			assert.equal(plan.length, 1);
+			assert.equal(plan[0].kind, 'abort');
+			assert.equal(plan[0].exitCode, code);
+			assert.ok(!/asleep/.test(plan[0].reason ?? ''));
+		});
+	}
+	it('unknown keeps the unreachable path', () => {
+		assert.deepEqual(decideSleepAction('unknown', makeOpts()), decideSleepAction('unreachable', makeOpts()));
+	});
+});
+
+describe('executeSleepPlan — stop kinds (v1.6.0)', () => {
+	it('abort step throws SleepError with the exit code and kind', async () => {
+		const opts = makeOpts();
+		const plan = decideSleepAction('auth_refused', opts);
+		await assert.rejects(
+			executeSleepPlan(plan, opts, { log: silentLogger(), journal: makeJournal(opts), total: 2, ctrl: new AbortController() }),
+			(err) => err instanceof SleepError && err.exitCode === 8 && err.kind === 'auth_refused',
+		);
+	});
+	it('confirm-asleep stops at once when a probe is refused (host still up)', async () => {
+		const fake = createSpawnFake();
+		fake.queue({ code: 0 }); // sleep cmd
+		fake.queue({ code: 255, stderr: 'Host key verification failed.' }); // confirm probe
+		const opts = makeOpts({ probeTimeout: 1, timeout: 30, poll: 1 });
+		const journal = makeJournal(opts);
+		await assert.rejects(
+			executeSleepPlan(decideSleepAction('reachable', opts), opts, { log: silentLogger(), journal, total: 3, ctrl: new AbortController() }, {
+				spawn: fake.spawn,
+				sleep: () => Promise.resolve(),
+			}),
+			(err) => err.exitCode === 9 && err.kind === 'hostkey_missing',
+		);
+		assert.equal(fake.calls.length, 2);
+		assert.equal(journal.steps.find((s) => s.kind === 'confirm-asleep')?.stopKind, 'hostkey_missing');
+	});
+});

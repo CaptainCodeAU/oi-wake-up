@@ -12,6 +12,7 @@ import {
 	VerifyError,
 	EXIT,
 } from '../src/verify.js';
+import { probeRecord, recordStop, STOP_KINDS } from '../src/probe.js';
 
 async function main() {
 	let opts;
@@ -71,6 +72,7 @@ async function main() {
 	process.on('SIGTERM', onSignal);
 	process.on('SIGHUP', onSignal);
 
+	let stopLine = null;
 	try {
 		// Dry-run: don't probe, just print the plans.
 		if (opts.dryRun) {
@@ -92,6 +94,12 @@ async function main() {
 		const probe = await probeSsh(opts, { signal: ctrl.signal });
 		const state = probe.reachable ? 'reachable' : 'unreachable';
 		journal.state = state;
+		// v1.6.0: why it did not answer. state stays reachable|unreachable for callers.
+		journal.kind = probe.kind;
+		if (!probe.reachable) journal.probe = probeRecord(probe);
+		if (STOP_KINDS.has(probe.kind)) {
+			stopLine = await recordStop(journal, probe.kind, probe, opts);
+		}
 		log.debug(`probe: code=${probe.code} duration=${probe.durationMs}ms stderr=${probe.stderr.trim()}`);
 		// Surface the probe's failure reason at default verbosity (not just -d):
 		// host-key mismatch, connection timeout, refused, and sshd-down each
@@ -106,11 +114,13 @@ async function main() {
 			journal.exit = EXIT.OK;
 			journal.durationMs = Date.now() - startedAt;
 			flushJournal();
-			log.info(`${opts.host}: ${state}`);
+			const why = probe.kind !== state ? ` (${probe.kind})` : '';
+			log.info(`${opts.host}: ${state}${why}`);
+			if (stopLine) log.info(`  ${stopLine}`);
 			process.exit(EXIT.OK);
 		}
 
-		const plan = decideAction(state, opts);
+		const plan = decideAction(probe.kind === 'reachable' ? 'reachable' : probe.kind, opts);
 		const performedWake = plan.some((s) => s.kind === 'wake');
 		const total = plan.length + 1; // include the probe itself in step count
 		log.step(1, total, `Probed ${opts.host} → ${state}`);
@@ -136,8 +146,14 @@ async function main() {
 		const code = err instanceof VerifyError ? err.exitCode : EXIT.MISCONFIG;
 		journal.exit = code;
 		journal.durationMs = Date.now() - startedAt;
+		// journal.error never carries the IdentityFile path; the human line may.
 		journal.error = err.message;
-		log.error(`Error: ${err.message}`);
+		let human = err.message;
+		if (err.kind) {
+			// The first probe's stop was recorded already; a stop in the wait loop is new.
+			human = stopLine && !err.probe ? stopLine : await recordStop(journal, err.kind, err.probe, opts);
+		}
+		log.error(`Error: ${human}`);
 		flushJournal();
 		process.exit(code);
 	} finally {

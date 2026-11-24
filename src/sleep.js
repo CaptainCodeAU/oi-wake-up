@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 import { buildSshArgs, runRemote, probeSsh, createLogger } from './verify.js';
+import { SHARED_EXIT, STOP_KINDS, exitForKind, stopMessage } from './probe.js';
 
 export { createLogger, probeSsh, buildSshArgs };
 
@@ -225,13 +226,16 @@ function parsePositiveInt(value, flag) {
 
 /**
  * @typedef {Object} SleepStep
- * @property {'sleep-cmd'|'confirm-asleep'|'noop'} kind
+ * @property {'sleep-cmd'|'confirm-asleep'|'noop'|'abort'} kind
  * @property {string} [reason]
  */
 
 /**
  * Pure state-machine: given SSH-probe outcome and opts, return ordered steps.
- * @param {'reachable'|'unreachable'} state
+ * The state is the probe's kind (v1.6.0). A stop kind aborts with its exit
+ * code: a refused login or a host-key fault is never "already asleep".
+ * 'unknown' keeps the unreachable path, as before 1.6.0.
+ * @param {string} state
  * @param {SleepOptions} opts
  * @returns {SleepStep[]}
  */
@@ -239,7 +243,10 @@ export function decideSleepAction(state, opts = {}) {
 	if (opts.dryRun) {
 		return [{ kind: 'noop', reason: 'dry-run' }];
 	}
-	if (state === 'unreachable') {
+	if (STOP_KINDS.has(state)) {
+		return [{ kind: 'abort', exitCode: exitForKind(state), stopKind: state, reason: `probe failed: ${state}` }];
+	}
+	if (state !== 'reachable') {
 		return [{ kind: 'noop', reason: 'already asleep — no action' }];
 	}
 	// reachable
@@ -254,18 +261,22 @@ export function decideSleepAction(state, opts = {}) {
 // ---------------------------------------------------------------------------
 
 export const EXIT = {
-	OK: 0,
-	MISCONFIG: 1,
+	...SHARED_EXIT, // OK 0, MISCONFIG 1, AUTH_REFUSED 8, HOSTKEY_FAILED 9, USAGE 64, INTERRUPTED 130
 	SLEEP_FAILED: 6,
 	SLEEP_NOT_CONFIRMED: 7,
-	USAGE: 64,
-	INTERRUPTED: 130,
 };
 
 export class SleepError extends Error {
-	constructor(exitCode, message) {
+	/**
+	 * @param {number} exitCode
+	 * @param {string} message
+	 * @param {{kind?: string, probe?: object}} [extra]
+	 */
+	constructor(exitCode, message, extra = {}) {
 		super(message);
 		this.exitCode = exitCode;
+		if (extra.kind) this.kind = extra.kind;
+		if (extra.probe) this.probe = extra.probe;
 	}
 }
 
@@ -317,6 +328,10 @@ async function pollUntilUnreachable(opts, onProgress, deps = {}) {
 		attempts++;
 		const result = await probeSsh(opts, { spawn: deps.spawn, signal: deps.signal });
 		if (onProgress) onProgress(attempts, result.code, result.durationMs);
+		if (STOP_KINDS.has(result.kind)) {
+			// It answered (and refused): positive evidence it is still up.
+			return { ok: false, attempts, totalMs: Date.now() - start, stopKind: result.kind, lastProbe: result };
+		}
 		if (!result.reachable) {
 			return { ok: true, attempts, totalMs: Date.now() - start };
 		}
@@ -352,6 +367,10 @@ export async function executeSleepPlan(plan, opts, ctx, deps = {}) {
 				journal.steps.push({ kind: 'noop', reason: step.reason });
 				return;
 
+			case 'abort':
+				journal.steps.push({ kind: 'abort', reason: step.reason });
+				throw new SleepError(step.exitCode, stopMessage(step.stopKind, opts.host), { kind: step.stopKind });
+
 			case 'sleep-cmd': {
 				log.step(stepNum, total, `Sending sleep command to ${opts.host}`);
 				log.debug(`sleep-cmd: ${opts.command}`);
@@ -385,12 +404,23 @@ export async function executeSleepPlan(plan, opts, ctx, deps = {}) {
 						log.verbose(`  probe ${attempt}: code=${code} (${ms}ms)`),
 					{ signal: ctrl.signal, spawn: deps.spawn, sleep: deps.sleep },
 				);
-				journal.steps.push({
-					kind: 'confirm-asleep',
-					ok: result.ok,
-					attempts: result.attempts,
-					totalMs: result.totalMs,
-				});
+				{
+					const confirmStep = {
+						kind: 'confirm-asleep',
+						ok: result.ok,
+						attempts: result.attempts,
+						totalMs: result.totalMs,
+					};
+					if (result.stopKind) confirmStep.stopKind = result.stopKind;
+					journal.steps.push(confirmStep);
+				}
+				if (result.stopKind) {
+					throw new SleepError(
+						exitForKind(result.stopKind),
+						stopMessage(result.stopKind, opts.host),
+						{ kind: result.stopKind, probe: result.lastProbe },
+					);
+				}
 				if (!result.ok) {
 					throw new SleepError(
 						EXIT.SLEEP_NOT_CONFIRMED,

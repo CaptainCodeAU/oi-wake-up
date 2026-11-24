@@ -918,3 +918,98 @@ describe('executePlan — capture-verify (C3)', () => {
 		assert.equal(v.stderr, undefined);
 	});
 });
+
+// ---------------------------------------------------------------------------
+// v1.6.0: probe kinds (#8163) — a refused login is never "unreachable"
+// ---------------------------------------------------------------------------
+
+describe('probeSsh — kind (v1.6.0)', () => {
+	it('adds kind to the result', async () => {
+		const fake = createSpawnFake();
+		fake.queue({ code: 255, stderr: 'u@h: Permission denied (publickey).\r\n' });
+		const r = await probeSsh(minOpts, { spawn: fake.spawn });
+		assert.equal(r.reachable, false);
+		assert.equal(r.kind, 'auth_refused');
+		fake.queue({ code: 0 });
+		assert.equal((await probeSsh(minOpts, { spawn: fake.spawn })).kind, 'reachable');
+	});
+});
+
+describe('decideAction — stop kinds (v1.6.0)', () => {
+	const cases = [
+		['auth_refused', 8],
+		['hostkey_missing', 9],
+		['hostkey_changed', 9],
+		['sandbox_blocked', 1],
+		['ssh_permissions', 1],
+	];
+	for (const [kind, code] of cases) {
+		for (const flags of [{}, { force: true }, { noWake: true }, { wakeOnly: true }, { noRestart: true }]) {
+			it(`${kind} aborts with exit ${code} (${JSON.stringify(flags)}), never wakes`, () => {
+				const plan = decideAction(kind, flags);
+				assert.equal(plan.length, 1);
+				assert.equal(plan[0].kind, 'abort');
+				assert.equal(plan[0].exitCode, code);
+				assert.equal(plan[0].stopKind, kind);
+			});
+		}
+	}
+	it('unknown keeps the unreachable path', () => {
+		assert.deepEqual(decideAction('unknown', {}), decideAction('unreachable', {}));
+	});
+	it('the exit numbers match EXIT', () => {
+		assert.equal(EXIT.AUTH_REFUSED, 8);
+		assert.equal(EXIT.HOSTKEY_FAILED, 9);
+	});
+});
+
+describe('pollUntilReachable — stop kinds (v1.6.0)', () => {
+	const opts = makeOpts({ timeout: 60, poll: 1, probeTimeout: 1 });
+	it('stops at once on auth_refused, without more polls', async () => {
+		const fake = createSpawnFake();
+		fake.queue({ code: 255, stderr: 'ssh: connect to host h port 22: Operation timed out' });
+		fake.queue({ code: 255, stderr: 'u@h: Permission denied (publickey).' });
+		fake.queue({ code: 0 });
+		const r = await pollUntilReachable(opts, null, { spawn: fake.spawn, sleep: () => Promise.resolve() });
+		assert.equal(r.ok, false);
+		assert.equal(r.stopKind, 'auth_refused');
+		assert.equal(r.attempts, 2);
+		assert.equal(r.lastProbe.code, 255);
+		assert.equal(fake.calls.length, 2);
+	});
+});
+
+describe('executePlan — stop kind in the wait loop (v1.6.0)', () => {
+	it('exits 8 at once with no --retry-wake re-send', async () => {
+		const fake = createSpawnFake();
+		fake.queue({ code: 255, stderr: 'u@h: Permission denied (publickey).' });
+		const opts = makeOpts({ retryWake: 2, grace: 0, timeout: 60, poll: 1 });
+		const plan = decideAction('unreachable', {});
+		const journal = { host: opts.host, state: 'unreachable', steps: [], exit: 0, durationMs: 0 };
+		const log = createLogger('quiet', false, { stdout: () => {}, stderr: () => {} });
+		let wakes = 0;
+		await assert.rejects(
+			executePlan(plan, opts, { log, journal, total: plan.length + 1, ctrl: new AbortController() }, {
+				spawn: fake.spawn,
+				wake: async () => { wakes++; },
+				sleep: () => Promise.resolve(),
+			}),
+			(err) => err instanceof VerifyError && err.exitCode === 8 && err.kind === 'auth_refused' && err.probe?.code === 255,
+		);
+		assert.equal(wakes, 1, 'only the first wake, no re-send');
+		assert.equal(fake.calls.length, 1);
+		const wait = journal.steps.find((s) => s.kind === 'wait');
+		assert.equal(wait.ok, false);
+		assert.equal(wait.stopKind, 'auth_refused');
+	});
+
+	it('abort step from decideAction carries the kind on the error', async () => {
+		const plan = decideAction('hostkey_changed', {});
+		const journal = { host: 'h', state: 'unreachable', steps: [], exit: 0, durationMs: 0 };
+		const log = createLogger('quiet', false, { stdout: () => {}, stderr: () => {} });
+		await assert.rejects(
+			executePlan(plan, makeOpts(), { log, journal, total: 2, ctrl: new AbortController() }),
+			(err) => err.exitCode === 9 && err.kind === 'hostkey_changed',
+		);
+	});
+});

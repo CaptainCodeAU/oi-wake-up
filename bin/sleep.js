@@ -12,6 +12,7 @@ import {
 	SleepError,
 	EXIT,
 } from '../src/sleep.js';
+import { probeRecord, recordStop, STOP_KINDS } from '../src/probe.js';
 
 async function main() {
 	let opts;
@@ -70,6 +71,7 @@ async function main() {
 	process.on('SIGTERM', onSignal);
 	process.on('SIGHUP', onSignal);
 
+	let stopLine = null;
 	try {
 		// Dry-run: don't probe, just print both plans.
 		if (opts.dryRun) {
@@ -90,8 +92,14 @@ async function main() {
 		const state = probe.reachable ? 'reachable' : 'unreachable';
 		journal.state = state;
 		log.debug(`probe: code=${probe.code} duration=${probe.durationMs}ms stderr=${probe.stderr.trim()}`);
+		// v1.6.0: why it did not answer; a refused login is never "already asleep".
+		journal.kind = probe.kind;
+		if (!probe.reachable) journal.probe = probeRecord(probe);
+		if (STOP_KINDS.has(probe.kind)) {
+			stopLine = await recordStop(journal, probe.kind, probe, opts);
+		}
 
-		const plan = decideSleepAction(state, opts);
+		const plan = decideSleepAction(probe.kind === 'reachable' ? 'reachable' : probe.kind, opts);
 		const total = plan.length + 1; // include probe in step count
 		log.step(1, total, `Probed ${opts.host} → ${state}`);
 
@@ -106,8 +114,13 @@ async function main() {
 		const code = err instanceof SleepError ? err.exitCode : EXIT.MISCONFIG;
 		journal.exit = code;
 		journal.durationMs = Date.now() - startedAt;
+		// journal.error never carries the IdentityFile path; the human line may.
 		journal.error = err.message;
-		log.error(`Error: ${err.message}`);
+		let human = err.message;
+		if (err.kind) {
+			human = stopLine && !err.probe ? stopLine : await recordStop(journal, err.kind, err.probe, opts);
+		}
+		log.error(`Error: ${human}`);
 		flushJournal();
 		process.exit(code);
 	} finally {
