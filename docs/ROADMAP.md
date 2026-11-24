@@ -1,6 +1,6 @@
 # Roadmap
 
-Last updated: 2026-06-08 (v1.5.0 — wake observability & attribution: ts/finishedAt, --capture-wake-source, --capture-verify, --status, -F/--ssh-config)
+Last updated: 2026-11-24 (v1.6.0 — the tools say why a machine did not answer: probe kinds, exit 8/9, --command-timeout, --verify-first)
 
 ## Status legend
 - ✓ Done
@@ -140,6 +140,22 @@ Requested by the same sister project (Proxmox CT150 dispatcher) that drove v1.4.
 **Released:** merged to `master` via [PR #3](https://github.com/CaptainCodeAU/oi-wake-up/pull/3) (merge commit `7ab29c8`), tagged `v1.5.0`.
 
 Surfaces: `src/verify.js`, `bin/verify.js`, `src/sleep.js`, `bin/sleep.js`, `tests/verify.test.js`, `tests/sleep.test.js`, `tests/signals.test.js`, `tests/observability.test.js` (new), plus README + USAGE + GLOSSARY + AGENT_BRIEF + DECISIONS. Plan: `../oi-wake-up-isolinear/workbench/plans/oi-wake-up-wake-clever-tarjan.md`.
+
+### v1.6.0 — why a machine did not answer (2026-11-24)
+
+A refused SSH login read as "unreachable", so `oi-wake-down` said "already asleep" and `oi-wake-verify` waited out its timeout (#8163). Agreed in a team round (oi-wake-up-main, dotfiles-main, Network_Plan-main as security owner, test-runner-3090-main); Gavin's go, oi-wake-up 45dadad4 Q2: "A".
+
+- ✓ **Probe kinds** in both tools, from ssh's exit code and stderr: `reachable`, `unreachable`, `auth_refused`, `hostkey_missing`, `hostkey_changed`, `sandbox_blocked`, `ssh_permissions`, `unknown`. Stop kinds end the run at once (never retried, waited out or re-woken). `state` unchanged for callers.
+- ✓ **Exit 8 AUTH_REFUSED, 9 HOSTKEY_FAILED**, same numbers in both tools; a test checks the two tables agree.
+- ✓ **`--status`** still exits 0 always; the kind goes in its JSON.
+- ✓ **`kind`, `probe: {kind, sshExit, stderr}`** on every failure, key material, home paths and addresses stripped.
+- ✓ **Refused-login diagnosis**: `auth: {agent, keyCount, matchingKeyLoaded}`; the IdentityFile path only on the terminal (Network_Plan-main's calls).
+- ✓ **Sandbox detection**: `sandbox_blocked` only when known_hosts is unreadable while its mode allows the user; else `ssh_permissions`; both exit 1.
+- ✓ **`oi-wake-down --command-timeout`** (default 15 s) so `--no-confirm` returns fast. Likely the cause of the doorway's 120 s hangs (rc 124).
+- ✓ **`oi-wake-verify --verify-first`**.
+- ✓ 260/260 tests on the 3090 (tr-run), incl. fake-`ssh` subprocess tests; live proof against mlbox (refused --status: kind auth_refused; refused oi-wake-down: exit 8).
+
+Dropped: ping-then-SSH probe, `--accept-new-host`, `--forward-agent` (team round), ControlMaster (Gavin's Q4: "B"), sleep presets (Gavin's Q3 (v2): "A"). Plan: `../oi-wake-up-isolinear/workbench/plans/2026-11-24-refused-login-release.md`.
 
 ---
 

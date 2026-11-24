@@ -250,6 +250,20 @@ oi-wake-verify mymachine --status --json | jq -r '.state'   # -> reachable | unr
 
 ---
 
+### 19a. Why didn't it answer? (`kind`, v1.6.0)
+
+A refused login or a host-key fault is no longer reported as "asleep". Read `kind`:
+
+```bash
+oi-wake-verify mymachine --status --json | jq -r '.kind'
+# -> reachable | unreachable | auth_refused | hostkey_missing | hostkey_changed
+#    | sandbox_blocked | ssh_permissions | unknown
+```
+
+On a refused login, the terminal line names the fix, for example `mymachine answered but refused the login: no key matching ~/.ssh/id_mymachine is loaded in ssh-agent; load it, then retry`. Outside `--status`, the run exits 8 (login refused) or 9 (host key) at once, without waking or waiting.
+
+---
+
 ### 20. Explicit ssh config file (`-F` / `--ssh-config`)
 
 `oi-wake-verify -F <path>` — forward an explicit ssh config to `ssh -F <path>`, for contexts where `~/.ssh/config` isn't readable: systemd units with `ProtectHome=true`, cron, containers. Collapses the manual decomposition (`--ssh-port`, `-i`, `--ssh-opt User=…`, `--ssh-opt UserKnownHostsFile=…`) back into a single config file. Applies to the probe, remediate, verify, and wake-source channels. `oi-wake-down` accepts the same `-F`/`--ssh-config` for callers that drive both the wake and sleep sides.
@@ -258,6 +272,24 @@ oi-wake-verify mymachine --status --json | jq -r '.state'   # -> reachable | unr
 oi-wake-verify mymachine --mac AA:BB:CC:DD:EE:FF -F /etc/oi-wake/ssh_config \
     --remediate "bash -lc 'cd ~/repos/myproject && just restart'"
 ```
+
+---
+
+### 21. Verify first, fix only if broken (`--verify-first`, v1.6.0)
+
+On an awake host, check health first; restart only when the check fails.
+
+```bash
+oi-wake-verify mymachine --mac AA:BB:CC:DD:EE:FF --verify-first \
+    --verify "bash -lc 'cd ~/repos/myproject && just warmup'" \
+    --remediate "bash -lc 'cd ~/repos/myproject && just restart'"
+```
+
+---
+
+### 22. Fast fire-and-forget sleep (`--command-timeout`, v1.6.0)
+
+`oi-wake-down mymachine --no-confirm` now returns within about 15 s even when the host sleeps mid-command (the default `--command-timeout 15`). Use `--command-timeout 0` for the old behaviour (no cap).
 
 ---
 

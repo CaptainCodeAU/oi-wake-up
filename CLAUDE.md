@@ -18,6 +18,7 @@ oi-wake-up/
 ├── src/
 │   ├── index.js          # Core library (parseMAC, isValidMAC, createMagicPacket, wake, wakeMany)
 │   ├── verify.js         # oi-wake-verify internals (parse, decideAction, executePlan, probe, poll, remediate, logger, VerifyError, EXIT)
+│   ├── probe.js          # probe kinds (classifyProbe, stop kinds, shared exit numbers, refused-login diagnosis, redaction)
 │   ├── sleep.js          # oi-wake-down internals (parseSleepArgs, decideSleepAction, executeSleepPlan, SleepError, EXIT)
 │   └── spawn.js          # spawnSsh — testable boundary for ssh subprocess
 ├── bin/
@@ -28,6 +29,8 @@ oi-wake-up/
 │   ├── index.test.js         # Tests for src/index.js (wake, wakeMany, parseMAC)
 │   ├── verify.test.js        # src/verify.js (parse, decideAction, logger, executePlan, parseWakeSource)
 │   ├── sleep.test.js         # src/sleep.js (parse, decide, executor, connection-drop, -F)
+│   ├── probe.test.js         # src/probe.js (kinds, redaction, ~/.ssh checks, auth diagnosis, shared exit table)
+│   ├── kinds-cli.test.js     # bins with a fake ssh/ssh-add/ssh-keygen on PATH (kinds, exit 8/9, no key material)
 │   ├── spawn.test.js         # real spawnSsh (timeout/kill, maxBuffer, abort)
 │   ├── signals.test.js       # SIGTERM/SIGHUP journal flush + ts/finishedAt (subprocess)
 │   ├── observability.test.js # ts/finishedAt, --status, wake-only marker (subprocess)

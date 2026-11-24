@@ -90,7 +90,12 @@ oi-wake-verify mymachine --mac AA:BB:CC:DD:EE:FF --dry-run -v
 
 **On `--capture-verify`**: includes the `--remediate`/`--verify` command `stdout`+`stderr` in their `steps[]` records regardless of verbosity (bounded by `--max-output`), so automation can extract proof artifacts (e.g. `cold_ms=N hot_ms=N threshold_ms=N`) without scraping `-d` output: `… --capture-verify --json | jq -r '.steps[]|select(.kind=="verify")|.stdout'`.
 
-**On `--status`**: a probe-only liveness mode — probe SSH, report `reachable`/`unreachable`, and exit 0 either way (no wake, no remediation, and no exit 3 on an unreachable host). `--mac` is not required. For monitoring scripts and Home Assistant sensors.
+**On `--status`**: a probe-only liveness mode — probe SSH, report `reachable`/`unreachable`, and exit 0 either way (no wake, no remediation, and no exit 3 on an unreachable host). `--mac` is not required. For monitoring scripts and Home Assistant sensors. Since v1.6.0 it still exits 0 on a refused login or a host-key fault; read `kind` in its JSON to tell them apart from a sleeping box.
+
+**On `--verify-first`** (v1.6.0): when the host is already awake, run `--verify` first, and only if it fails run `--remediate`, then `--verify` again. A healthy host is left alone; a host that is up but broken (for example a GPU lost to its container) is fixed. Needs `--verify`; refused (exit 64) with `--force`, `--wake-only`, `--no-restart` or `--status`. When the host is asleep, the normal wake path runs.
+
+**Why a probe failed (v1.6.0):** every run that probes records a top-level `kind` in `--json`/`--journal`: `reachable`, `unreachable` (timed out, no route, host down, connection refused), `auth_refused` (the host answered but refused the login), `hostkey_missing` (no known_hosts entry), `hostkey_changed` (the host's key differs), `sandbox_blocked` / `ssh_permissions` (ssh could not read `~/.ssh`), or `unknown` (anything else; handled as unreachable, as before). `state` stays `reachable`/`unreachable` for existing callers. On a failure, `probe: {kind, sshExit, stderr}` holds ssh's exit code and its first stderr line, with fingerprints, key blobs, home paths and addresses replaced. On `auth_refused`, `auth: {agent, keyCount, matchingKeyLoaded}` says whether ssh-agent has keys (`keys`, `none`, `no_agent`, `disabled`) and whether one matches the host's IdentityFile (`true`, `false`, or `null` if it cannot tell). The agent listing, fingerprints and the IdentityFile path never go into JSON or the journal; the path appears only in the error line on the terminal. A refused login, a host-key fault and a `~/.ssh` fault stop the run at once: no wake, no wait, no `--retry-wake`.
+
 
 **On `-F` / `--ssh-config <path>`**: forwards an explicit ssh config to `ssh -F <path>` for contexts where `~/.ssh/config` is unreadable (systemd `ProtectHome=true`, cron, containers). Applies to the probe, remediate, verify, and wake-source channels.
 
@@ -116,11 +121,13 @@ If you want **positive direct evidence** on top of latency gating (e.g. "I want 
 | Code | Meaning |
 | ---: | --- |
 | 0    | Success or already-awake (no action needed) |
-| 1    | Misconfiguration |
+| 1    | Misconfiguration (since v1.6.0 also ssh could not read `~/.ssh`: kind `sandbox_blocked` or `ssh_permissions`) |
 | 2    | WoL send failed |
 | 3    | SSH timeout (machine never came up within `--timeout`) |
 | 4    | Remediation command failed |
 | 5    | Verification failed |
+| 8    | Login refused: the host answered but refused the key (v1.6.0) |
+| 9    | Host key failed: missing from known_hosts, or changed (v1.6.0; `kind` says which) |
 | 64   | Invalid CLI usage (unknown flag, conflicting mode flags) |
 | 130  | Interrupted (SIGINT / SIGTERM / SIGHUP) |
 
@@ -192,6 +199,10 @@ See [docs/GLOSSARY.md](docs/GLOSSARY.md) for the S3 vs. S4 distinction.
 
 **Connection-drop handling:** when the host sleeps before `rundll32` returns, SSH reports exit 255 with a "connection closed" or "broken pipe" message. `oi-wake-down` treats this as successful delivery and continues to the confirm-asleep poll — it is not treated as a failure.
 
+**On `--command-timeout <s>`** (v1.6.0, default `15`, `0` = no cap): when the host sleeps mid-command, the sleep command's ssh can wait a long time for a TCP drop that never comes. After `<s>` seconds the ssh is killed and the command counts as delivered (unless its stderr shows a refused login or a host-key fault). This changes the default behaviour: before v1.6.0 there was no cap, so `--no-confirm` could hang for minutes. Without `--no-confirm`, the confirm-asleep poll still checks the host really went to sleep. Raise it if your sleep command legitimately runs longer than 15 s.
+
+**Never "already asleep" on a refused login (v1.6.0):** a probe that fails because the login was refused, the host key is missing or changed, or `~/.ssh` cannot be read exits 8, 9 or 1 with a `kind` in the JSON. Before v1.6.0 these all read as "already asleep" and exited 0. See "Why a probe failed" under `oi-wake-verify`.
+
 **On `-F` / `--ssh-config <path>`** (v1.5.0): like `oi-wake-verify`, `oi-wake-down` accepts an explicit ssh config (`ssh -F <path>`) for `ProtectHome`/cron/container contexts where `~/.ssh/config` is unreadable — useful when one caller drives both the wake and sleep sides. Every `--json`/`--journal` record also carries the same `ts` + `finishedAt` timestamps as `oi-wake-verify`.
 
 Run `oi-wake-down --help` for the full flag reference.
@@ -204,7 +215,11 @@ Run `oi-wake-down --help` for the full flag reference.
 | 1    | Misconfiguration |
 | 6    | Sleep command failed (non-connection-drop error) |
 | 7    | Sleep not confirmed — host still reachable after `--timeout` seconds |
+| 8    | Login refused: the host answered but refused the key (v1.6.0) |
+| 9    | Host key failed: missing from known_hosts, or changed (v1.6.0) |
 | 64   | Invalid CLI usage |
+
+Exit codes 0, 1, 8, 9, 64 and 130 mean the same in both tools (a test checks this). Exit 1 also covers kind `sandbox_blocked` / `ssh_permissions`.
 | 130  | Interrupted (SIGINT / SIGTERM / SIGHUP) |
 
 On any of these signals the `--json` object and `--journal` line are flushed before exit (parity with `oi-wake-verify`).
