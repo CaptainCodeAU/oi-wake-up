@@ -4,8 +4,6 @@ Wake-on-LAN done right. No dependencies, just Node.js.
 
 Default branch is `master`.
 
-Lane file: ~/CODE/CaptainCodeAU/oi-wake-up-isolinear/LANE.md. engage's launcher loads it into every engage session; a session not started by engage reads it first.
-
 ## Tech stack
 
 - Node.js (ES modules)
@@ -107,4 +105,4 @@ Before editing a file, run `grep -cP '\t' <file>` to detect tab indentation — 
 
 ## Deletion safety
 
-`rm`, `cp`, and `mv` are shell-function wrappers with safety behavior (rm routes to trash; cp/mv default to `-i` overwrite prompts). These wrappers are NEVER active in Bash tool calls — non-interactive shells skip `.zshrc`, so any `rm`/`cp`/`mv` here hits `/bin/rm` etc. directly: deletions are permanent and overwrites are silent. Always get explicit user confirmation before deleting or overwriting files. A `~/.config/safe-rm` denylist exists but does NOT protect you in the Bash tool either — don't rely on it.
+`rm`, `cp`, and `mv` are shell-function wrappers with safety behavior (rm routes to trash; cp/mv default to `-i` overwrite prompts). These wrappers are NEVER active in Bash tool calls — non-interactive shells skip `.zshrc`, so any `rm`/`cp`/`mv` here hits `/bin/rm` etc. directly: deletions are permanent and overwrites are silent. Always get explicit user confirmation before deleting or overwriting files.
