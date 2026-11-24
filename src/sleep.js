@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 import { buildSshArgs, runRemote, probeSsh, createLogger } from './verify.js';
-import { SHARED_EXIT, STOP_KINDS, exitForKind, stopMessage } from './probe.js';
+import { SHARED_EXIT, STOP_KINDS, exitForKind, stopMessage, classifyProbe } from './probe.js';
 
 export { createLogger, probeSsh, buildSshArgs };
 
@@ -43,6 +43,9 @@ SSH parameters:
 Sleep:
       --command <cmd>        Override sleep command (default: rundll32 SetSuspendState)
       --no-confirm           Fire-and-forget — exit without waiting to confirm sleep
+      --command-timeout <s>  Kill the sleep command's ssh after <s> and count it
+                             as delivered (the box usually sleeps mid-command);
+                             0 = no cap (default: 15)
       --probe-timeout <s>    Per-probe ConnectTimeout (default: 2)
   -t, --timeout <s>          Total window to confirm asleep (default: 60)
       --poll <s>             Poll interval for confirm-asleep (default: 3)
@@ -72,6 +75,7 @@ Note: -d means debug. The sibling tool (oi-wake-up) uses -d for delay.`;
  * @property {string[]} sshOpts
  * @property {string|null} sshConfig
  * @property {string} command
+ * @property {number} commandTimeout
  * @property {boolean} confirm
  * @property {boolean} dryRun
  * @property {number} probeTimeout
@@ -100,6 +104,7 @@ export function parseSleepArgs(argv) {
 		sshOpts: [],
 		sshConfig: null,
 		command: DEFAULT_SLEEP_CMD,
+		commandTimeout: 15,
 		confirm: true,
 		dryRun: false,
 		probeTimeout: 2,
@@ -144,6 +149,9 @@ export function parseSleepArgs(argv) {
 				break;
 			case '--command':
 				opts.command = requireValue(argv, ++i, arg);
+				break;
+			case '--command-timeout':
+				opts.commandTimeout = parseNonNegativeInt(requireValue(argv, ++i, arg), arg);
 				break;
 			case '--no-confirm':
 				opts.confirm = false;
@@ -212,6 +220,15 @@ function parsePort(value, flag) {
 		throw new Error(`${flag}: invalid number: ${value}`);
 	}
 	if (n < 0 || n > 65535) throw new Error(`${flag}: port out of range: ${value}`);
+	return n;
+}
+
+function parseNonNegativeInt(value, flag) {
+	const n = Number.parseInt(value, 10);
+	if (!Number.isFinite(n) || String(n) !== String(value).replace(/^\+/, '')) {
+		throw new Error(`${flag}: invalid number: ${value}`);
+	}
+	if (n < 0) throw new Error(`${flag}: must be non-negative: ${value}`);
 	return n;
 }
 
@@ -374,15 +391,30 @@ export async function executeSleepPlan(plan, opts, ctx, deps = {}) {
 			case 'sleep-cmd': {
 				log.step(stepNum, total, `Sending sleep command to ${opts.host}`);
 				log.debug(`sleep-cmd: ${opts.command}`);
+				// v1.6.0 item 7: a cap on the sleep command's own ssh, so --no-confirm
+				// returns fast. No ServerAlive here: its "not responding" stderr would
+				// fail isSleepDelivered (IDEAS.md).
+				const cap = opts.commandTimeout ?? 15;
+				const timeoutMs = cap > 0 ? cap * 1000 : undefined;
 				const r = await runRemote(opts, opts.command, {
 					signal: ctrl.signal,
 					spawn: deps.spawn,
+					timeoutMs,
 				});
 				log.debug(
 					`sleep-cmd: code=${r.code} stdout=${r.stdout.trim()} stderr=${r.stderr.trim()}`,
 				);
-				const delivered = isSleepDelivered(r);
-				journal.steps.push({ kind: 'sleep-cmd', code: r.code, delivered, durationMs: r.durationMs });
+				const timedOut = Boolean(timeoutMs && r.killed);
+				const failKind = classifyProbe(r).kind;
+				if (STOP_KINDS.has(failKind)) {
+					journal.steps.push({ kind: 'sleep-cmd', code: r.code, delivered: false, durationMs: r.durationMs, stopKind: failKind });
+					throw new SleepError(exitForKind(failKind), stopMessage(failKind, opts.host), { kind: failKind, probe: { ...r, kind: failKind } });
+				}
+				const delivered = timedOut || isSleepDelivered(r);
+				const sleepStep = { kind: 'sleep-cmd', code: r.code, delivered, durationMs: r.durationMs };
+				if (timedOut) sleepStep.timedOut = true;
+				journal.steps.push(sleepStep);
+				if (timedOut) log.verbose(`  sleep command cut off after ${cap}s; counted as delivered`);
 				if (!delivered) {
 					throw new SleepError(
 						EXIT.SLEEP_FAILED,

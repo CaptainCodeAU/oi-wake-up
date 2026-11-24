@@ -461,3 +461,58 @@ describe('executeSleepPlan — stop kinds (v1.6.0)', () => {
 		assert.equal(journal.steps.find((s) => s.kind === 'confirm-asleep')?.stopKind, 'hostkey_missing');
 	});
 });
+
+// ---------------------------------------------------------------------------
+// v1.6.0 item 7: --command-timeout so --no-confirm returns fast
+// ---------------------------------------------------------------------------
+
+describe('parseSleepArgs — --command-timeout (v1.6.0)', () => {
+	it('defaults to 15 s', () => {
+		assert.equal(parseSleepArgs(['h']).commandTimeout, 15);
+	});
+	it('accepts 0 (no cap) and a number', () => {
+		assert.equal(parseSleepArgs(['h', '--command-timeout', '0']).commandTimeout, 0);
+		assert.equal(parseSleepArgs(['h', '--command-timeout', '40']).commandTimeout, 40);
+	});
+	it('rejects a bad value', () => {
+		assert.throws(() => parseSleepArgs(['h', '--command-timeout', 'x']));
+		assert.throws(() => parseSleepArgs(['h', '--command-timeout', '-1']));
+	});
+});
+
+describe('executeSleepPlan — --command-timeout (v1.6.0)', () => {
+	it('threads timeoutMs into the sleep-cmd spawn, with no ServerAlive', async () => {
+		const fake = createSpawnFake();
+		fake.queue({ code: 0 });
+		const opts = makeOpts({ confirm: false, commandTimeout: 15 });
+		await executeSleepPlan(decideSleepAction('reachable', opts), opts, { log: silentLogger(), journal: makeJournal(opts), total: 2, ctrl: new AbortController() }, { spawn: fake.spawn });
+		assert.equal(fake.calls[0].opts.timeoutMs, 15000);
+		assert.ok(!fake.calls[0].args.some((a) => /ServerAlive/.test(a)));
+	});
+	it('0 means no cap', async () => {
+		const fake = createSpawnFake();
+		fake.queue({ code: 0 });
+		const opts = makeOpts({ confirm: false, commandTimeout: 0 });
+		await executeSleepPlan(decideSleepAction('reachable', opts), opts, { log: silentLogger(), journal: makeJournal(opts), total: 2, ctrl: new AbortController() }, { spawn: fake.spawn });
+		assert.equal(fake.calls[0].opts.timeoutMs, undefined);
+	});
+	it('a kill by the timeout counts as delivered, step records timedOut', async () => {
+		const fake = createSpawnFake();
+		fake.queue({ code: 255, killed: true, signal: 'SIGKILL', stderr: 'Warning: Permanently added host' });
+		const opts = makeOpts({ confirm: false, commandTimeout: 15 });
+		const journal = makeJournal(opts);
+		await executeSleepPlan(decideSleepAction('reachable', opts), opts, { log: silentLogger(), journal, total: 2, ctrl: new AbortController() }, { spawn: fake.spawn });
+		const st = journal.steps.find((s) => s.kind === 'sleep-cmd');
+		assert.equal(st.delivered, true);
+		assert.equal(st.timedOut, true);
+	});
+	it('a kill whose stderr shows a refused login is not delivered', async () => {
+		const fake = createSpawnFake();
+		fake.queue({ code: 255, killed: true, signal: 'SIGKILL', stderr: 'u@h: Permission denied (publickey).' });
+		const opts = makeOpts({ confirm: false, commandTimeout: 15 });
+		await assert.rejects(
+			executeSleepPlan(decideSleepAction('reachable', opts), opts, { log: silentLogger(), journal: makeJournal(opts), total: 2, ctrl: new AbortController() }, { spawn: fake.spawn }),
+			(err) => err.exitCode === 8 && err.kind === 'auth_refused',
+		);
+	});
+});

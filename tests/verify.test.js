@@ -1013,3 +1013,70 @@ describe('executePlan — stop kind in the wait loop (v1.6.0)', () => {
 		);
 	});
 });
+
+// ---------------------------------------------------------------------------
+// v1.6.0 item 8: --verify-first
+// ---------------------------------------------------------------------------
+
+describe('parseVerifyArgs — --verify-first (v1.6.0)', () => {
+	const base = ['h', '--mac', 'AA:BB:CC:DD:EE:FF'];
+	it('sets verifyFirst with --verify', () => {
+		assert.equal(parseVerifyArgs([...base, '--verify', 'chk', '--verify-first']).verifyFirst, true);
+		assert.equal(parseVerifyArgs(base).verifyFirst, false);
+	});
+	it('needs --verify', () => {
+		assert.throws(() => parseVerifyArgs([...base, '--verify-first']), /--verify-first needs --verify/);
+	});
+	for (const f of ['--force', '--wake-only', '--no-restart', '--status']) {
+		it(`refused with ${f}`, () => {
+			assert.throws(() => parseVerifyArgs([...base, '--verify', 'chk', '--verify-first', f]), /--verify-first/);
+		});
+	}
+	it('allowed with --no-wake and --dry-run', () => {
+		assert.equal(parseVerifyArgs(['h', '--no-wake', '--verify', 'c', '--verify-first']).verifyFirst, true);
+		assert.equal(parseVerifyArgs([...base, '--dry-run', '--verify', 'c', '--verify-first']).verifyFirst, true);
+	});
+});
+
+describe('decideAction — --verify-first (v1.6.0)', () => {
+	it('reachable: verify-first, then remediate, grace, verify', () => {
+		assert.deepEqual(decideAction('reachable', { verifyFirst: true }).map((s) => s.kind), ['verify-first', 'remediate', 'grace', 'verify']);
+		assert.deepEqual(decideAction('reachable', { verifyFirst: true, noWake: true }).map((s) => s.kind), ['verify-first', 'remediate', 'grace', 'verify']);
+	});
+	it('unreachable: today\'s wake path', () => {
+		assert.deepEqual(decideAction('unreachable', { verifyFirst: true }), decideAction('unreachable', {}));
+	});
+});
+
+describe('executePlan — --verify-first (v1.6.0)', () => {
+	const ctx = (journal) => ({ log: createLogger('quiet', false, { stdout: () => {}, stderr: () => {} }), journal, total: 5, ctrl: new AbortController() });
+	it('healthy: verify once, no remediation', async () => {
+		const fake = createSpawnFake();
+		fake.queue({ code: 0 });
+		const opts = makeOpts({ remediate: 'restart', verifyCmd: 'chk', verifyFirst: true, grace: 0 });
+		const journal = { host: 'h', steps: [] };
+		await executePlan(decideAction('reachable', opts), opts, ctx(journal), { spawn: fake.spawn, sleep: () => Promise.resolve() });
+		assert.equal(fake.calls.length, 1);
+		assert.equal(fake.calls[0].args.at(-1), 'chk');
+		assert.deepEqual(journal.steps.map((s) => [s.kind, s.phase]), [['verify', 'first'], ['noop', undefined]]);
+	});
+	it('unhealthy: remediate, then verify again', async () => {
+		const fake = createSpawnFake();
+		fake.queue({ code: 1, stderr: 'gpu down' }, { code: 0 }, { code: 0 });
+		const opts = makeOpts({ remediate: 'restart', verifyCmd: 'chk', verifyFirst: true, grace: 0 });
+		const journal = { host: 'h', steps: [] };
+		await executePlan(decideAction('reachable', opts), opts, ctx(journal), { spawn: fake.spawn, sleep: () => Promise.resolve() });
+		assert.deepEqual(fake.calls.map((c) => c.args.at(-1)), ['chk', 'restart', 'chk']);
+		assert.equal(journal.steps[0].phase, 'first');
+		assert.equal(journal.steps[0].code, 1);
+	});
+	it('still unhealthy after remediation: exit 5', async () => {
+		const fake = createSpawnFake();
+		fake.queue({ code: 1 }, { code: 0 }, { code: 1 });
+		const opts = makeOpts({ remediate: 'restart', verifyCmd: 'chk', verifyFirst: true, grace: 0 });
+		await assert.rejects(
+			executePlan(decideAction('reachable', opts), opts, ctx({ host: 'h', steps: [] }), { spawn: fake.spawn, sleep: () => Promise.resolve() }),
+			(err) => err.exitCode === 5,
+		);
+	});
+});

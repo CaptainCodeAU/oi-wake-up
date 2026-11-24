@@ -221,3 +221,24 @@ describe('no key material in JSON or the journal (subprocess)', () => {
 		assert.match(v.stderr, /id_test/);
 	});
 });
+
+describe('~/.ssh read failures (subprocess, item 6)', () => {
+	it('readable known_hosts: kind ssh_permissions, exit 1, home shown as ~', async () => {
+		const { mkdirSync } = await import('node:fs');
+		mkdirSync(join(home, '.ssh'), { recursive: true });
+		writeFileSync(join(home, '.ssh', 'known_hosts'), '');
+		const { code, json } = await run(VERIFY_BIN, ['mlbox', '--no-wake', '--json'], {
+			probes: [{ code: 255, stderr: `Can't open user config file ${home}/.ssh/config: Operation not permitted\r\n` }],
+		});
+		assert.equal(code, 1);
+		assert.equal(json.kind, 'ssh_permissions');
+		assert.equal(json.probe.stderr, "Can't open user config file ~/.ssh/config: Operation not permitted");
+	});
+	it('oi-wake-down: ssh_permissions exits 1, never "already asleep"', async () => {
+		const { code, json } = await run(SLEEP_BIN, ['mlbox', '--json'], {
+			probes: [{ code: 255, stderr: `Bad owner or permissions on ${home}/.ssh/config\r\n` }],
+		});
+		assert.equal(code, 1);
+		assert.equal(json.kind, 'ssh_permissions');
+	});
+});

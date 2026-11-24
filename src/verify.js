@@ -79,6 +79,9 @@ Remediation:
       --verify-timeout <s>     Kill --verify if it runs longer than <s> (0 = no cap, default)
   -g, --grace <seconds>     Wait after SSH up before remediation (default: 10)
       --capture-verify      Include --remediate/--verify stdout+stderr in --json/--journal records
+      --verify-first        When already awake: run --verify first, and only if it
+                            fails run --remediate then --verify again (needs --verify;
+                            not with --force, --wake-only, --no-restart or --status)
 
 Mode flags (mutually exclusive):
   -f, --force               Run remediation even if already awake
@@ -130,6 +133,7 @@ Note: -d here means debug. The sibling tool (oi-wake-up) uses -d for delay.`;
  * @property {number} verifyTimeout
  * @property {number} grace
  * @property {boolean} captureVerify
+ * @property {boolean} verifyFirst
  * @property {boolean} force
  * @property {boolean} wakeOnly
  * @property {boolean} noRestart
@@ -174,6 +178,7 @@ export function parseVerifyArgs(argv) {
 		verifyTimeout: 0,
 		grace: 10,
 		captureVerify: false,
+		verifyFirst: false,
 		force: false,
 		wakeOnly: false,
 		noRestart: false,
@@ -253,6 +258,9 @@ export function parseVerifyArgs(argv) {
 			case '-g':
 			case '--grace':
 				opts.grace = parseNonNegativeInt(requireValue(argv, ++i, arg), arg);
+				break;
+			case '--verify-first':
+				opts.verifyFirst = true;
 				break;
 			case '--capture-verify':
 				opts.captureVerify = true;
@@ -336,6 +344,14 @@ export function parseVerifyArgs(argv) {
 		throw new Error(`Conflicting mode flags: ${names} are mutually exclusive`);
 	}
 
+	if (opts.verifyFirst) {
+		if (!opts.verifyCmd) throw new Error('--verify-first needs --verify <cmd>');
+		const clash = ['force', 'wakeOnly', 'noRestart', 'status'].filter((k) => opts[k]);
+		if (clash.length) {
+			throw new Error(`--verify-first cannot be used with ${clash.map((k) => MODE_FLAG_DISPLAY[k]).join(', ')}`);
+		}
+	}
+
 	if (!opts.noWake && !opts.status && !opts.mac) {
 		throw new Error('Missing required option: --mac (omit only with --no-wake / --status)');
 	}
@@ -395,11 +411,12 @@ function parseNonNegativeInt(value, flag) {
  * @property {boolean} [noRestart]
  * @property {boolean} [noWake]
  * @property {boolean} [dryRun]
+ * @property {boolean} [verifyFirst]
  */
 
 /**
  * @typedef {Object} ActionStep
- * @property {'wake'|'wait'|'grace'|'remediate'|'verify'|'noop'|'abort'} kind
+ * @property {'wake'|'wait'|'grace'|'remediate'|'verify'|'verify-first'|'noop'|'abort'} kind
  * @property {string} [reason]
  * @property {number} [exitCode]
  */
@@ -428,6 +445,8 @@ export function decideAction(state, flags = {}) {
 	}
 
 	if (state === 'reachable') {
+		// --verify-first: verify, and only on failure remediate then verify again.
+		if (flags.verifyFirst) return [{ kind: 'verify-first' }, { kind: 'remediate' }, { kind: 'grace' }, { kind: 'verify' }];
 		if (flags.force) return [{ kind: 'remediate' }, { kind: 'grace' }, { kind: 'verify' }];
 		if (flags.noWake) return [{ kind: 'remediate' }, { kind: 'grace' }, { kind: 'verify' }];
 		if (flags.wakeOnly) return [{ kind: 'noop', reason: 'already awake — wake skipped' }];
@@ -949,6 +968,34 @@ export async function executePlan(plan, opts, ctx, deps = {}) {
 					}
 				}
 				break;
+
+			case 'verify-first': {
+				log.step(stepNum, total, `Verifying first: ${opts.verifyCmd}`);
+				const timeoutMs = opts.verifyTimeout > 0 ? opts.verifyTimeout * 1000 : undefined;
+				const r = await runRemote(opts, opts.verifyCmd, {
+					signal: ctrl.signal,
+					spawn: deps.spawn,
+					maxBuffer: opts.maxOutput,
+					timeoutMs,
+					connectTimeout: REMOTE_CONNECT_TIMEOUT_S,
+					serverAliveInterval: SERVER_ALIVE_INTERVAL_S,
+					serverAliveCountMax: SERVER_ALIVE_COUNT_MAX,
+				});
+				log.debug(`verify-first: code=${r.code} stdout=${r.stdout.trim()} stderr=${r.stderr.trim()}`);
+				const firstStep = { kind: 'verify', phase: 'first', code: r.code, durationMs: r.durationMs, killed: r.killed };
+				if (opts.captureVerify) {
+					firstStep.stdout = r.stdout;
+					firstStep.stderr = r.stderr;
+				}
+				journal.steps.push(firstStep);
+				if (r.code === 0 && !(timeoutMs && r.killed)) {
+					journal.steps.push({ kind: 'noop', reason: 'healthy — no remediation' });
+					log.info('  healthy — no remediation');
+					return;
+				}
+				log.info('  verify failed — remediating');
+				break;
+			}
 
 			case 'verify':
 				if (!opts.verifyCmd) {

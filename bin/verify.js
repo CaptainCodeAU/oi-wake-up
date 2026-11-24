@@ -78,7 +78,9 @@ async function main() {
 		if (opts.dryRun) {
 			log.info('Dry-run — no actions performed.');
 			log.info('If unreachable: wake → wait for SSH → grace → remediate → verify.');
-			log.info('If reachable (default): no action.');
+			log.info(opts.verifyFirst
+				? 'If reachable: verify first; only if it fails, remediate → grace → verify.'
+				: 'If reachable (default): no action.');
 			if (opts.remediate) log.info(`  remediation: ${opts.remediate}`);
 			if (opts.verifyCmd) log.info(`  verify: ${opts.verifyCmd}`);
 			if (opts.captureWakeSource) log.info('  wake-source: powercfg /lastwake captured after wake');
