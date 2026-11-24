@@ -54,7 +54,7 @@ oi-wake-up/
 - `node bin/cli.js <mac>` — Send magic packet
 - `node bin/verify.js <host> --mac <mac>` — Wake + ssh probe + remediate
 - `node bin/sleep.js <host>` — Put machine to sleep via SSH
-- `pnpm test` — Run tests
+- `tr-run` — Run tests (on the 3090; the tests-off-mac guard blocks `pnpm test` on the Mac)
 - `pnpm install -g .` — Install all three CLIs globally (`oi-wake-up`, `oi-wake-verify`, `oi-wake-down`)
 
 ## Key rules
@@ -65,11 +65,11 @@ oi-wake-up/
 - **Args + shell aliases over config files.** For personal-use CLIs, CLI flags + shell aliases are the personalisation layer. Don't add JSON/YAML/TOML config files unless explicitly requested. See the decisions log, `../oi-wake-up-isolinear/workbench/project-docs/2026-11-15/DECISIONS.md` (the companion also holds AGENT_BRIEF.md and METAPROMPT.md beside it).
 - **For new features: read the plans first.** Plans are in the companion's `workbench/plans/`. The plan file is source of truth — do not re-derive design decisions captured there.
 - **Use `node:test`**, not vitest or any other test framework.
-- **Run tests after every change.**
+- **Run tests after every change** (through `tr-run`; a single file locally with `node --test tests/<file>` is fine).
 
 ## How to verify
 
-1. `pnpm test` — all tests pass
+1. `tr-run` — all tests pass on the 3090
 2. `node bin/cli.js 00:11:22:33:44:55` — sends magic packet, prints confirmation
 3. `pnpm install -g .` then `oi-wake-up --help` — CLI works globally
 4. `node bin/verify.js --help` and (after `pnpm install -g .`) `oi-wake-verify --help` both work
